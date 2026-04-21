@@ -1,0 +1,45 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "name": "Example",
+      "request": "launch",
+      "mainClass": "pages.Example",
+      "projectName": "matrix-playwright-tests"
+    },
+    {
+      "type": "java",
+      "name": "ScheduleIns",
+      "request": "launch",
+      "mainClass": "pages.ScheduleIns",
+      "projectName": "matrix-playwright-tests"
+    },
+    {
+      "type": "java",
+      "name": "Run successfulLoginWithValidCredentials",
+      "request": "launch",
+      "mainClass": "org.testng.TestNG",
+      "classPaths": [
+        "$Auto",
+        "/Users/smartclean/.m2/repository/org/testng/testng/7.11.0/testng-7.11.0.jar"
+      ],
+      "args": [
+        "-testclass",
+        "tests.LoginTests",
+        "-methods",
+        "tests.LoginTests.successfulLoginWithValidCredentials"
+      ],
+      "vmArgs": "-Dmatrix.valid.username=sudha_sc -Dmatrix.valid.password=7777insK! -Dmatrix.property.name=${input:matrixPropertyName} -Dheadless=false",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "matrixPropertyName",
+      "type": "promptString",
+      "description": "Property name"
+    }
+  ]
+}
