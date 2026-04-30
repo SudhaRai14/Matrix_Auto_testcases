@@ -7,6 +7,8 @@ import utils.BaseTest;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
 
 public class ScheduleInspectionTest extends BaseTest {
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ISO_LOCAL_DATE;
@@ -110,16 +112,101 @@ public class ScheduleInspectionTest extends BaseTest {
                 "Floor selection should be retained.");
     }
 
-    @Test(description = "Verify Copy Configuration populates the current row with existing setup")
-    public void shouldCopyConfigurationIntoCurrentSetup() {
-        openScheduleInspectionModal();
-        scheduleInspectionPage.selectAnyTemplateWithRows();
-        scheduleInspectionPage.fillScheduleForm(buildValidCustomData());
-        scheduleInspectionPage.clickCopyConfiguration();
+    // @Test(description = "Verify Copy Configuration populates the current row with existing setup")
+    // public void shouldCopyConfigurationIntoCurrentSetup() {
+    //     openScheduleInspectionModal();
+    //     scheduleInspectionPage.selectAnyTemplateWithRows();
+    //     scheduleInspectionPage.fillScheduleForm(buildValidCustomData());
+    //     scheduleInspectionPage.clickCopyConfiguration();
 
-        Assert.assertTrue(scheduleInspectionPage.isConfigurationCopied("Lobby", "John Auditor"),
-                "Copy Configuration should populate the row with the copied schedule values.");
+    //     Assert.assertTrue(scheduleInspectionPage.isConfigurationCopied("Lobby", "John Auditor"),
+    //             "Copy Configuration should populate the row with the copied schedule values.");
+    // }
+
+//     @Test(description = "Verify Copy Configuration populates the current row with existing setup")
+//     public void shouldCopyConfigurationIntoCurrentSetup() {
+//         openScheduleInspectionModal();
+//         scheduleInspectionPage.chooseCustomOption();
+//         scheduleInspectionPage.selectAnyTemplateWithRows();
+//         scheduleInspectionPage.fillScheduleForm(buildValidStandardData());
+//         scheduleInspectionPage.selectRowByZone("Zone B");
+//         scheduleInspectionPage.clickCopyConfiguration();
+//         Assert.assertTrue(scheduleInspectionPage.isConfigurationCopied("Zone B", "Sudha Rai"),
+//                 "Copy Configuration should populate the row with the copied schedule values.");
+    
+// }
+
+@Test(description = "Verify Copy Configuration copies data from first zone to multiple selected zones")
+public void shouldCopyConfigurationToMultipleZones() {
+    openScheduleInspectionModal();
+    scheduleInspectionPage.chooseCustomOption();
+    scheduleInspectionPage.selectTemplate("Checkbox question");
+    if (!scheduleInspectionPage.isDropdownValueSelected("Buildings", "B1")) {
+        scheduleInspectionPage.selectBuilding("B1");
     }
+    if (scheduleInspectionPage.getZoneRowCount() < 3) {
+        try {
+            scheduleInspectionPage.selectZoneCategory("Back of School");
+        } catch (RuntimeException ignored) {
+            // Some sessions do not expose this zone-category option; keep the loaded rows instead.
+        }
+    }
+
+    int rowCount = scheduleInspectionPage.getZoneRowCount();
+    Assert.assertTrue(rowCount >= 2, "At least 2 zones are required for copy configuration.");
+
+    int sourceRowIndex = rowCount > 2 ? 1 : 0;
+    List<Integer> targetRowIndexes = new ArrayList<>();
+    for (int index = 0; index < rowCount && targetRowIndexes.size() < 2; index++) {
+        if (index != sourceRowIndex) {
+            targetRowIndexes.add(index);
+        }
+    }
+
+    Assert.assertFalse(targetRowIndexes.isEmpty(), "At least one target zone is required for copy configuration.");
+
+    // Step 3: Fill the first selected source zone only
+    ScheduleFormData data = baseScheduleData()
+            .withStartDate(datePlusDays(1))
+            .withEndDate(datePlusDays(3))
+            .withStartTime("05:00 AM")
+            .withAuditor("Sudha Rai");
+
+    scheduleInspectionPage.selectRowByIndex(sourceRowIndex, false);
+    scheduleInspectionPage.setRowStartDate(sourceRowIndex, data.getStartDate());
+    scheduleInspectionPage.setRowEndDate(sourceRowIndex, data.getEndDate());
+    scheduleInspectionPage.setRowStartTime(sourceRowIndex, data.getStartTime());
+    scheduleInspectionPage.setRowAuditor(sourceRowIndex, data.getAuditor());
+
+    // Step 4: Capture expected values
+    String expectedAuditor = data.getAuditor();
+    String expectedStartDate = data.getStartDate();
+    String expectedEndDate = data.getEndDate();
+    String expectedTime = data.getStartTime();
+
+    // Step 5: Select multiple target zones
+    for (int targetRowIndex : targetRowIndexes) {
+        scheduleInspectionPage.selectRowByIndex(targetRowIndex, true);
+    }
+
+    // Step 6: Copy configuration
+    scheduleInspectionPage.clickCopyConfiguration();
+
+    // Step 7: Validate all copied rows
+    for (int targetRowIndex : targetRowIndexes) {
+        Assert.assertTrue(
+                scheduleInspectionPage.isRowConfigurationMatching(
+                        targetRowIndex,
+                        expectedAuditor, expectedStartDate, expectedEndDate, expectedTime
+                ),
+                "Copy failed for row index: " + targetRowIndex
+        );
+    }
+
+    scheduleInspectionPage.clickSave();
+    captureStep("10-after-copy-configuration-save");
+    assertSuccessToast("Saving a copied custom schedule should show a success confirmation.");
+}
 
     @Test(description = "Verify validation is shown when Template is missing")
     public void shouldShowValidationWhenTemplateIsMissing() {
