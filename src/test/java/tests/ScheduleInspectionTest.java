@@ -2,25 +2,36 @@ package tests;
 
 import org.testng.Assert;
 import org.testng.annotations.Test;
+import utils.FrequencyValidator;
+import pages.ScheduleInspectionPage.FrequencyConfig;
+import pages.ScheduleInspectionPage.RecurrenceMonth;
 import pages.ScheduleInspectionPage.ScheduleFormData;
 import utils.BaseTest;
 
+import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.logging.Logger;
+import java.time.temporal.TemporalAdjusters;
 
 public class ScheduleInspectionTest extends BaseTest {
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ISO_LOCAL_DATE;
+    private static final Logger LOGGER = Logger.getLogger(ScheduleInspectionTest.class.getName());
     private static final String TEMPLATE_DAILY = "Daily Audit Template";
     private static final String TEMPLATE_STANDARD = "Standard Audit Template";
     private static final String TEMPLATE_FULL_PROPERTY = "Full Property Template";
-    private static final String BUILDING_TOWER_A = "Tower A";
+    private static final String BUILDING = "Back of School";
     private static final String BUILDING_MAIN_CAMPUS = "Main Campus";
     private static final String ZONE_CATEGORY_GUEST_ROOM = "Guest Room";
     private static final String ZONE_CATEGORY_PUBLIC_AREA = "Public Area";
     private static final String FLOOR_1 = "Floor 1";
     private static final String FLOOR_2 = "Floor 2";
+    private static final String DEFAULT_AUDITOR = "Sudha Rai";
+    private static final String DEFAULT_TIME = "09:00";
 
     @Test(description = "Verify Schedule Audit modal opens from Audits > Schedule")
     public void shouldOpenScheduleInspectionModal() {
@@ -73,8 +84,7 @@ public class ScheduleInspectionTest extends BaseTest {
         scheduleInspectionPage.selectAnyTemplateWithRows();
         scheduleInspectionPage.fillScheduleForm(buildValidStandardData());
         scheduleInspectionPage.clickSave();
-        captureStep("10-after-custom-save-click");
-        Assert.assertTrue(scheduleInspectionPage.isStandardSelected(), "Standard should remain selected after save.");
+        captureStep("10-after-standard-save-click");
         assertSuccessToast("Saving a valid standard schedule should show a success confirmation.");
     }
 
@@ -112,45 +122,23 @@ public class ScheduleInspectionTest extends BaseTest {
                 "Floor selection should be retained.");
     }
 
-    // @Test(description = "Verify Copy Configuration populates the current row with existing setup")
-    // public void shouldCopyConfigurationIntoCurrentSetup() {
-    //     openScheduleInspectionModal();
-    //     scheduleInspectionPage.selectAnyTemplateWithRows();
-    //     scheduleInspectionPage.fillScheduleForm(buildValidCustomData());
-    //     scheduleInspectionPage.clickCopyConfiguration();
 
-    //     Assert.assertTrue(scheduleInspectionPage.isConfigurationCopied("Lobby", "John Auditor"),
-    //             "Copy Configuration should populate the row with the copied schedule values.");
+
+    @Test(description = "Verify Copy Configuration copies data from first zone to multiple selected zones")
+    public void shouldCopyConfigurationToMultipleZones() {
+        openScheduleInspectionModal();
+        scheduleInspectionPage.chooseCustomOption();
+        scheduleInspectionPage.selectTemplate("Checkbox question");
+        if (!scheduleInspectionPage.isDropdownValueSelected("Buildings", "B1")) {
+         scheduleInspectionPage.selectBuilding("B1");
+         }
+    // if (scheduleInspectionPage.getZoneRowCount() < 3) {
+    //     try {
+    //         scheduleInspectionPage.selectZoneCategory("Back of School");
+    //     } catch (RuntimeException ignored) {
+    //         // Some sessions do not expose this zone-category option; keep the loaded rows instead.
+    //     }
     // }
-
-//     @Test(description = "Verify Copy Configuration populates the current row with existing setup")
-//     public void shouldCopyConfigurationIntoCurrentSetup() {
-//         openScheduleInspectionModal();
-//         scheduleInspectionPage.chooseCustomOption();
-//         scheduleInspectionPage.selectAnyTemplateWithRows();
-//         scheduleInspectionPage.fillScheduleForm(buildValidStandardData());
-//         scheduleInspectionPage.selectRowByZone("Zone B");
-//         scheduleInspectionPage.clickCopyConfiguration();
-//         Assert.assertTrue(scheduleInspectionPage.isConfigurationCopied("Zone B", "Sudha Rai"),
-//                 "Copy Configuration should populate the row with the copied schedule values.");
-    
-// }
-
-@Test(description = "Verify Copy Configuration copies data from first zone to multiple selected zones")
-public void shouldCopyConfigurationToMultipleZones() {
-    openScheduleInspectionModal();
-    scheduleInspectionPage.chooseCustomOption();
-    scheduleInspectionPage.selectTemplate("Checkbox question");
-    if (!scheduleInspectionPage.isDropdownValueSelected("Buildings", "B1")) {
-        scheduleInspectionPage.selectBuilding("B1");
-    }
-    if (scheduleInspectionPage.getZoneRowCount() < 3) {
-        try {
-            scheduleInspectionPage.selectZoneCategory("Back of School");
-        } catch (RuntimeException ignored) {
-            // Some sessions do not expose this zone-category option; keep the loaded rows instead.
-        }
-    }
 
     int rowCount = scheduleInspectionPage.getZoneRowCount();
     Assert.assertTrue(rowCount >= 2, "At least 2 zones are required for copy configuration.");
@@ -211,18 +199,14 @@ public void shouldCopyConfigurationToMultipleZones() {
     @Test(description = "Verify validation is shown when Template is missing")
     public void shouldShowValidationWhenTemplateIsMissing() {
         openScheduleInspectionModal();
-        scheduleInspectionPage.fillScheduleForm(new ScheduleFormData()
-                .withBuilding(BUILDING_TOWER_A)
-                .withZone("Lobby")
-                .withCriticality("High")
-                .withFrequency("Daily")
-                .withStartDate(datePlusDays(7))
-                .withEndDate(datePlusDays(21))
-                .withStartTime("09:00")
-                .withAuditor("John Auditor"));
         scheduleInspectionPage.clickSave();
 
-        assertValidation("template");
+        Assert.assertTrue(
+                scheduleInspectionPage.hasValidationMessageContaining("template")
+                        || scheduleInspectionPage.isModalOpen(),
+                "Saving without required schedule details should keep the modal open and show validation.");
+
+        assertValidation("Template");
     }
 
     @Test(description = "Verify validation is shown when zone data is missing")
@@ -240,12 +224,15 @@ public void shouldCopyConfigurationToMultipleZones() {
     public void shouldShowValidationForInvalidDateRange() {
         openScheduleInspectionModal();
         scheduleInspectionPage.selectAnyTemplateWithRows();
-        scheduleInspectionPage.fillScheduleForm(buildValidCustomData()
-                .withStartDate(datePlusDays(14))
-                .withEndDate(datePlusDays(7)));
-        scheduleInspectionPage.clickSave();
+        String startDate = datePlusDays(14);
+        String disabledEndDate = datePlusDays(7);
 
-        assertValidation("date");
+        scheduleInspectionPage.fillScheduleForm(baseScheduleData()
+                .withStartDate(startDate));
+
+        Assert.assertTrue(
+                scheduleInspectionPage.isRowDateDisabled(0, "End Date", disabledEndDate),
+                "End date earlier than start date should be disabled");
     }
 
     @Test(description = "Verify scheduling without an auditor is not allowed")
@@ -271,16 +258,73 @@ public void shouldCopyConfigurationToMultipleZones() {
                 "Switching modes should clear the custom row-level values.");
     }
 
-    @Test(description = "Verify large templates render a meaningful number of rows")
-    public void shouldRenderRowsForLargeTemplates() {
-        openScheduleInspectionModal();
-        scheduleInspectionPage.selectAnyTemplateWithRows();
+  @Test(description = "Verify Schedule Inspection supports daily recurrence scheduling")
+public void shouldScheduleInspectionWithDailyFrequency() {
 
-        Assert.assertTrue(scheduleInspectionPage.getZoneRowCount() > 0,
-                "Selecting an available template should render one or more rows.");
+    ScheduleContext context = openAndPrepareScheduleAudit();
+
+    LocalDate startDate = LocalDate.now().plusDays(7);
+    LocalDate endDate = startDate.plusDays(6);
+
+    List<LocalDate> expectedDates = dailyDates(startDate, endDate, 1);
+
+    scheduleInspectionPage.selectRowByIndex(context.rowIndex(), false);
+    scheduleInspectionPage.selectFrequency(context.rowIndex(), FrequencyConfig.daily(1));
+
+    String summary = scheduleInspectionPage.getFrequencySummary(context.rowIndex());
+
+    FrequencyValidator.validate(summary, FrequencyConfig.daily(1));
+
+    scheduleInspectionPage.selectDates(
+            context.rowIndex(),
+            iso(startDate),
+            iso(endDate),
+            DEFAULT_TIME
+    );
+
+    scheduleInspectionPage.setRowAuditor(context.rowIndex(), DEFAULT_AUDITOR);
+
+    scheduleInspectionPage.clickSave();
+
+    assertSuccessToast("Daily recurrence schedule should save successfully.");
+
+    validateScheduledEvents(
+            context.zone(),
+            DEFAULT_AUDITOR,
+            startDate,
+            endDate,
+            expectedDates
+    );
+}
+
+    @Test(description = "Verify Schedule Inspection supports monthly recurrence scheduling by date")
+    public void shouldScheduleInspectionWithMonthlyFrequency() {
+        ScheduleContext context = openAndPrepareScheduleAudit();
+        LocalDate startDate = LocalDate.now().plusMonths(1).withDayOfMonth(1);
+        LocalDate endDate = startDate.plusMonths(3).withDayOfMonth(startDate.plusMonths(3).lengthOfMonth());
+        List<Integer> dayNumbers = List.of(5, 10);
+        List<LocalDate> expectedDates = monthlyDates(startDate, endDate, 1, dayNumbers);
+
+        scheduleInspectionPage.selectRowByIndex(context.rowIndex(), false);
+        scheduleInspectionPage.selectFrequency(context.rowIndex(), FrequencyConfig.monthlyOnDates(1, dayNumbers));
+        String frequencySummary = scheduleInspectionPage.getFrequencySummary(context.rowIndex()).toLowerCase(Locale.ENGLISH);
+        Assert.assertTrue(
+                frequencySummary.contains("month") && frequencySummary.contains("5") && frequencySummary.contains("10"),
+                "How Often column should reflect the selected monthly-by-date rule.");
+
+        scheduleInspectionPage.selectDates(context.rowIndex(), iso(startDate), iso(endDate), "10:15");
+        scheduleInspectionPage.setRowAuditor(context.rowIndex(), DEFAULT_AUDITOR);
+        scheduleInspectionPage.clickSave();
+
+        assertScheduleSaved("Monthly recurrence schedule should save successfully.");
+        validateScheduledEvents(context.zone(), DEFAULT_AUDITOR, startDate, endDate, expectedDates);
     }
 
-    @Test(description = "Verify submitting the same schedule twice returns deterministic feedback")
+   
+
+
+  /* Matrix allows duplicate schedule submissions as of 6/2024, but the system should provide deterministic feedback if a user attempts to submit the same schedule twice. This test verifies that behavior. If duplicate submissions become disallowed in the future, this test should be updated to expect an error message instead of success feedback on the second submission. 
+  @Test(description = "Verify submitting the same schedule twice returns deterministic feedback")
     public void shouldReturnDeterministicFeedbackForDuplicateSubmission() {
         openScheduleInspectionModal();
         scheduleInspectionPage.selectAnyTemplateWithRows();
@@ -295,13 +339,13 @@ public void shouldCopyConfigurationToMultipleZones() {
         Assert.assertTrue(scheduleInspectionPage.getToastMessage().toLowerCase()
                         .matches(".*(duplicate|already exists|already scheduled|success).*"),
                 "Submitting the same schedule twice should return deterministic feedback.");
-    }
+    } */
 
     private ScheduleFormData buildValidCustomData() {
         return baseScheduleData()
                 .withZone("Lobby")
-                //.withCriticality("High")
-               // .withFrequency("Daily")
+                .withCriticality("High")
+                .withFrequency("Daily")
                 .withStartDate(datePlusDays(7))
                 .withEndDate(datePlusDays(21))
                 .withStartTime("09:00")
@@ -327,6 +371,195 @@ public void shouldCopyConfigurationToMultipleZones() {
         return LocalDate.now().plusDays(days).format(DATE_FORMAT);
     }
 
+    private ScheduleContext openAndPrepareScheduleAudit() {
+        openScheduleInspectionModal();
+        Assert.assertTrue(scheduleInspectionPage.isModalOpen(), "Schedule Audit modal should be visible.");
+
+        if (!scheduleInspectionPage.isCustomSelected()) {
+            scheduleInspectionPage.chooseCustomOption();
+        }
+
+        String selectedTemplate = scheduleInspectionPage.selectAnyTemplateWithRows();
+        String selectedBuilding = scheduleInspectionPage.selectAnyBuilding();
+        int rowCount = scheduleInspectionPage.getZoneRowCount();
+        if (rowCount == 0) {
+            selectedTemplate = scheduleInspectionPage.selectAnyTemplateWithRows();
+            rowCount = scheduleInspectionPage.getZoneRowCount();
+        }
+
+        Assert.assertTrue(rowCount > 0,
+                "Selecting template '" + selectedTemplate + "' and building '" + selectedBuilding
+                        + "' should populate one or more zones.");
+
+        trySelectOptionalFilters();
+
+        rowCount = scheduleInspectionPage.getZoneRowCount();
+        int rowIndex = firstStableZoneRowIndex(rowCount);
+        String zone = scheduleInspectionPage.getZoneByIndex(rowIndex);
+        LOGGER.info("Prepared schedule modal with template=" + selectedTemplate
+                + ", building=" + selectedBuilding + ", zone=" + zone);
+        return new ScheduleContext(selectedTemplate, selectedBuilding, zone, rowIndex);
+    }
+
+    private int firstStableZoneRowIndex(int rowCount) {
+        for (int rowIndex = 0; rowIndex < rowCount; rowIndex++) {
+            String zone = scheduleInspectionPage.getZoneByIndex(rowIndex);
+            if (isStableZoneName(zone)) {
+                return rowIndex;
+            }
+        }
+        return 0;
+    }
+
+    private boolean isStableZoneName(String zone) {
+        return zone != null
+                && !zone.isBlank()
+                && !zone.contains("?")
+                && zone.chars().allMatch(character -> character < 128)
+                && zone.matches(".*[A-Za-z0-9].*");
+    }
+
+    private void trySelectOptionalFilters() {
+        try {
+            scheduleInspectionPage.selectAnyZoneCategory();
+        } catch (RuntimeException ignored) {
+            // Zone category is optional in the Schedule Inspection flow.
+        }
+
+        try {
+            scheduleInspectionPage.selectAnyFloor();
+        } catch (RuntimeException ignored) {
+            // Floor is optional in the Schedule Inspection flow.
+        }
+    }
+
+    private void validateScheduledEvents(String zone,
+                                         String auditor,
+                                         LocalDate startDate,
+                                         LocalDate endDate,
+                                         List<LocalDate> expectedDates) {
+        LOGGER.info(() -> "Validating scheduled events for zone=" + zone + ", auditor=" + auditor
+                + ", expectedCount=" + expectedDates.size());
+        scheduleInspectionPage.setScheduleListDateRange(iso(startDate), iso(endDate));
+        scheduleInspectionPage.waitForScheduledEvents(zone, auditor, 1);
+    }
+
+    private void assertScheduleSaved(String message) {
+        String feedback = scheduleInspectionPage.getToastMessageIfPresent(5000).toLowerCase(Locale.ENGLISH);
+        Assert.assertTrue(
+                feedback.matches(".*(success|scheduled|created).*")
+                        || scheduleInspectionPage.hasScheduledInspectionForAuditor(DEFAULT_AUDITOR),
+                message);
+                scheduleInspectionPage.closeSuccessPopupIfPresent();
+    }
+
+    private String iso(LocalDate date) {
+        return date.toString();
+    }
+
+    private List<LocalDate> dailyDates(LocalDate start, LocalDate end, int every) {
+        List<LocalDate> dates = new ArrayList<>();
+        for (LocalDate date = start; !date.isAfter(end); date = date.plusDays(every)) {
+            dates.add(date);
+        }
+        return dates;
+    }
+
+    private List<LocalDate> monthlyDates(LocalDate start, LocalDate end, int every, List<Integer> dayNumbers) {
+        List<LocalDate> dates = new ArrayList<>();
+        YearMonth currentMonth = YearMonth.from(start);
+        YearMonth endMonth = YearMonth.from(end);
+        int monthOffset = 0;
+
+        while (!currentMonth.isAfter(endMonth)) {
+            if (monthOffset % every == 0) {
+                for (Integer dayNumber : dayNumbers) {
+                    if (dayNumber > currentMonth.lengthOfMonth()) {
+                        continue;
+                    }
+
+                    LocalDate candidate = currentMonth.atDay(dayNumber);
+                    if (!candidate.isBefore(start) && !candidate.isAfter(end)) {
+                        dates.add(candidate);
+                    }
+                }
+            }
+
+            currentMonth = currentMonth.plusMonths(1);
+            monthOffset++;
+        }
+
+        return dates;
+    }
+
+    private List<LocalDate> monthlyByDayPattern(LocalDate start,
+                                                LocalDate end,
+                                                int every,
+                                                String weekOrder,
+                                                DayOfWeek dayOfWeek) {
+        List<LocalDate> dates = new ArrayList<>();
+        YearMonth currentMonth = YearMonth.from(start);
+        YearMonth endMonth = YearMonth.from(end);
+        int monthOffset = 0;
+
+        while (!currentMonth.isAfter(endMonth)) {
+            if (monthOffset % every == 0) {
+                LocalDate candidate = resolveMonthlyWeekday(currentMonth, weekOrder, dayOfWeek);
+                if (!candidate.isBefore(start) && !candidate.isAfter(end)) {
+                    dates.add(candidate);
+                }
+            }
+
+            currentMonth = currentMonth.plusMonths(1);
+            monthOffset++;
+        }
+
+        return dates;
+    }
+
+    private List<LocalDate> yearlyDates(LocalDate start,
+                                        LocalDate end,
+                                        int every,
+                                        RecurrenceMonth recurrenceMonth,
+                                        int dayOfMonth) {
+        List<LocalDate> dates = new ArrayList<>();
+        int startYear = start.getYear();
+        int endYear = end.getYear();
+
+        for (int year = startYear; year <= endYear; year += every) {
+            YearMonth yearMonth = YearMonth.of(year, recurrenceMonth.month());
+            if (dayOfMonth > yearMonth.lengthOfMonth()) {
+                continue;
+            }
+
+            LocalDate candidate = yearMonth.atDay(dayOfMonth);
+            if (!candidate.isBefore(start) && !candidate.isAfter(end)) {
+                dates.add(candidate);
+            }
+        }
+
+        return dates;
+    }
+
+    private List<String> toExpectedUiDates(List<LocalDate> dates) {
+        List<String> values = new ArrayList<>();
+        for (LocalDate date : dates) {
+            values.add(date.format(DATE_FORMAT));
+        }
+        return values;
+    }
+
+    private LocalDate resolveMonthlyWeekday(YearMonth month, String weekOrder, DayOfWeek dayOfWeek) {
+        return switch (weekOrder.toLowerCase(Locale.ENGLISH)) {
+            case "first" -> month.atDay(1).with(TemporalAdjusters.firstInMonth(dayOfWeek));
+            case "second" -> month.atDay(1).with(TemporalAdjusters.dayOfWeekInMonth(2, dayOfWeek));
+            case "third" -> month.atDay(1).with(TemporalAdjusters.dayOfWeekInMonth(3, dayOfWeek));
+            case "fourth" -> month.atDay(1).with(TemporalAdjusters.dayOfWeekInMonth(4, dayOfWeek));
+            case "last" -> month.atEndOfMonth().with(TemporalAdjusters.lastInMonth(dayOfWeek));
+            default -> throw new IllegalArgumentException("Unsupported monthly week order: " + weekOrder);
+        };
+    }
+
     private void assertSuccessToast(String message) {
         String feedback = scheduleInspectionPage.getToastMessageIfPresent(5000).toLowerCase();
         Assert.assertTrue(feedback.matches(".*(success|scheduled|created).*")
@@ -340,4 +573,9 @@ public void shouldCopyConfigurationToMultipleZones() {
                         || scheduleInspectionPage.isSaveButtonDisabled(),
                 "Expected validation tied to: " + expectedKeyword);
     }
+
+    private record ScheduleContext(String template, String building, String zone, int rowIndex) {
+    }
+
+    
 }

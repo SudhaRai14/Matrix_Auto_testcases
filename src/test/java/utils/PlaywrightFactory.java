@@ -193,6 +193,17 @@ public final class PlaywrightFactory {
         return browser.newContext(new Browser.NewContextOptions().setViewportSize(1600, 900));
     }
 
+    public static BrowserContext createContext(Browser browser, Path storageStatePath) {
+        Browser.NewContextOptions options = new Browser.NewContextOptions()
+                .setViewportSize(1600, 900);
+
+        if (storageStatePath != null && Files.exists(storageStatePath)) {
+            options.setStorageStatePath(storageStatePath);
+        }
+
+        return browser.newContext(options);
+    }
+
     public static Page createPage(BrowserContext context) {
         Page page = context.newPage();
         page.setDefaultTimeout(15000);

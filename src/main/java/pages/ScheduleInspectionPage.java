@@ -6,20 +6,24 @@ import com.microsoft.playwright.assertions.PlaywrightAssertions;
 import com.microsoft.playwright.options.AriaRole;
 import com.microsoft.playwright.options.LoadState;
 import com.microsoft.playwright.options.WaitForSelectorState;
-
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.Month;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
 import java.util.regex.Pattern;
+import java.util.logging.Logger;
 
-public class ScheduleInspectionPage {
+public class ScheduleInspectionPage 
+{
     private static final double DEFAULT_TIMEOUT_MS = 20000;
-    private static final DateTimeFormatter UI_TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
-    private static final DateTimeFormatter UI_TIME_FORMAT_12_HOUR = DateTimeFormatter.ofPattern("hh:mm a");
-
+    private static final DateTimeFormatter UI_TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH);
+    private static final DateTimeFormatter UI_TIME_FORMAT_12_HOUR = DateTimeFormatter.ofPattern("hh:mm a", Locale.ENGLISH);
+    private static final Logger LOGGER = Logger.getLogger(ScheduleInspectionPage.class.getName());
     private final Page page;
     private final Locator modal;
     private final Locator modalTitle;
@@ -33,24 +37,28 @@ public class ScheduleInspectionPage {
     private final Locator toastMessage;
     private final Locator validationMessages;
     private final Locator rows;
-
-    public ScheduleInspectionPage(Page page) {
+    private String lastFeedbackMessage = "";
+    private final List<String> lastValidationMessages = new ArrayList<>();
+    public ScheduleInspectionPage(Page page) 
+    {
         this.page = page;
 
-        this.modal = page.getByRole(AriaRole.DIALOG,
-                new Page.GetByRoleOptions().setName("Schedule Audit"));
+        this.modal = page.locator(
+                ".ant-modal-root [role='dialog']:visible, " +
+                        ".ant-modal-root .ant-modal.newSchedule:visible")
+                .first();
 
-        this.modalTitle = page.locator(".ant-modal-title")
+        this.modalTitle = page.locator(".ant-modal-root .ant-modal-title:visible")
                 .filter(new Locator.FilterOptions().setHasText("Schedule Audit")).first();
 
         this.modalBody = page.locator(
-                ".ant-modal-body:has-text('Template:'), " +
-                        ".ant-modal-content:has-text('Template:'), " +
-                        ".ant-modal-content:has-text('Buildings:'), " +
-                        ".ant-modal-content:has-text('Zone Category:'), " +
-                        ".ant-modal-content:has-text('StartTime'), " +
-                        "[role='dialog']:has-text('Template:')")
-                .first();
+                ".ant-modal-root .ant-modal-body:visible:has-text('Template:'), " +
+                        ".ant-modal-root .ant-modal-content:visible:has-text('Template:'), " +
+                        ".ant-modal-root .ant-modal-content:visible:has-text('Buildings:'), " +
+                        ".ant-modal-root .ant-modal-content:visible:has-text('Zone Category:'), " +
+                        ".ant-modal-root .ant-modal-content:visible:has-text('StartTime'), " +
+                        ".ant-modal-root [role='dialog']:visible:has-text('Template:')").first();
+                        
         this.customRadio = modal.getByLabel("Custom", new Locator.GetByLabelOptions().setExact(true)).first()
                 .or(modal.getByText("Custom", new Locator.GetByTextOptions().setExact(true))).first();
         this.standardRadio = modal.getByLabel("Standard", new Locator.GetByLabelOptions().setExact(true)).first()
@@ -66,6 +74,7 @@ public class ScheduleInspectionPage {
                 ".ant-notification-notice:visible, " +
                         ".ant-message-notice:visible, " +
                         ".swal-overlay--show-modal .swal-modal:visible, " +
+                        ".swal2-container .swal2-popup:visible, " +
                         "[role='alert']:visible").first();
         this.validationMessages = page.locator(
                 ".ant-modal-content .ant-form-item-explain-error:visible, " +
@@ -75,14 +84,40 @@ public class ScheduleInspectionPage {
         this.rows = modal.locator("tbody tr:not(.ant-table-placeholder)");
     }
 
-    public void waitForModal() {
-        Locator modalWrap = page.locator(".ant-modal-root .ant-modal-wrap").filter(
-                new Locator.FilterOptions().setHas(page.locator(".ant-modal.newSchedule, [role='dialog']"))).first();
-        Locator modalDialog = page.locator(".ant-modal-root .ant-modal.newSchedule, .ant-modal-root [role='dialog']").first();
+     public void closeSuccessPopupIfPresent() {
+    Locator popup = page.locator(".swal2-container");
+    Locator okButton = page.locator(".swal2-confirm");
+
+    if (popup.isVisible()) {
+        okButton.waitFor(new Locator.WaitForOptions()
+                .setState(WaitForSelectorState.VISIBLE)
+                .setTimeout(5000));
+
+        okButton.click();
+
+        // Wait until popup disappears
+        popup.waitFor(new Locator.WaitForOptions()
+                .setState(WaitForSelectorState.HIDDEN)
+                .setTimeout(10000));
+    }
+}
+    public void waitForModal() 
+    {
+        Locator visibleModalWrap = page.locator(".ant-modal-root .ant-modal-wrap:visible").first();
+        Locator visibleModalDialog = page.locator(
+                ".ant-modal-root .ant-modal.newSchedule:visible, " +
+                        ".ant-modal-root [role='dialog']:visible")
+                .first();
+        Locator attachedModalDialog = page.locator(
+                ".ant-modal-root .ant-modal.newSchedule, " +
+                        ".ant-modal-root [role='dialog']")
+                .first();
 
         long start = System.currentTimeMillis();
-        while (System.currentTimeMillis() - start < DEFAULT_TIMEOUT_MS) {
-            try {
+        while (System.currentTimeMillis() - start < DEFAULT_TIMEOUT_MS) 
+        {
+            try 
+            {
                 if (modalTitle.count() > 0 && modalTitle.isVisible()) {
                     return;
                 }
@@ -92,13 +127,15 @@ public class ScheduleInspectionPage {
                 if (modal.count() > 0 && modal.isVisible()) {
                     return;
                 }
-                if (modalWrap.count() > 0 && modalWrap.isVisible() && modalDialog.count() > 0) {
+                if (visibleModalWrap.count() > 0 && visibleModalWrap.isVisible() && visibleModalDialog.count() > 0) {
                     return;
                 }
-                if (modalDialog.count() > 0 && isDomVisible(modalDialog)) {
+                if (visibleModalDialog.count() > 0 && isDomVisible(visibleModalDialog)) {
                     return;
                 }
-            } catch (RuntimeException ignored) {
+            } 
+            catch (RuntimeException ignored) 
+            {
                 // Allow the dialog time to finish rendering.
             }
 
@@ -106,14 +143,15 @@ public class ScheduleInspectionPage {
         }
 
         Locator root = page.locator("#root").first();
-        if (root.count() > 0 && root.innerText().isBlank()) {
+        if (root.count() > 0 && root.innerText().isBlank()) 
+            {
             throw new IllegalStateException(
                     "Schedule Inspection did not open because the page rendered blank after the button click.");
         }
 
-        if (modalDialog.count() > 0) {
-            String display = safeAttribute(modalDialog, "style");
-            String wrapDisplay = modalWrap.count() > 0 ? safeAttribute(modalWrap, "style") : "";
+        if (attachedModalDialog.count() > 0) {
+            String display = safeAttribute(attachedModalDialog, "style");
+            String wrapDisplay = visibleModalWrap.count() > 0 ? safeAttribute(visibleModalWrap, "style") : "";
             throw new IllegalStateException(
                     "Schedule Audit dialog was attached to the DOM but never became visible. dialogStyle="
                             + display + ", wrapStyle=" + wrapDisplay);
@@ -122,38 +160,46 @@ public class ScheduleInspectionPage {
         throw new IllegalStateException("Schedule Audit dialog did not attach to the DOM.");
     }
 
-    public boolean isModalOpen() {
+    public boolean isModalOpen() 
+    {
         return modalTitle.isVisible() || modalBody.isVisible() || modal.isVisible();
     }
 
-    public void chooseCustomOption() {
+    public void chooseCustomOption() 
+    {
         selectRadio(customRadio);
     }
 
-    public void chooseStandardOption() {
+    public void chooseStandardOption() 
+    {
         selectRadio(standardRadio);
     }
 
-    public boolean isCustomSelected() {
+    public boolean isCustomSelected() 
+    {
         return isRadioSelected(customRadio);
     }
 
-    public boolean isStandardSelected() {
+    public boolean isStandardSelected() 
+    {
         return isRadioSelected(standardRadio);
     }
 
-    public void selectTemplate(String templateName) {
+    public void selectTemplate(String templateName) 
+    {
         selectDropdownOption("Template", templateName);
         waitForLoadingToFinish();
     }
 
-    public String selectAnyTemplate() {
+    public String selectAnyTemplate() 
+    {
         String selectedTemplate = selectFirstDropdownOption("Template");
         waitForLoadingToFinish();
         return selectedTemplate;
     }
 
-    public String selectAnyTemplateWithRows() {
+    public String selectAnyTemplateWithRows() 
+    {
         List<String> templateOptions = getVisibleDropdownOptions("Template");
         for (String templateOption : templateOptions) {
             selectTemplate(templateOption);
@@ -164,12 +210,21 @@ public class ScheduleInspectionPage {
         throw new IllegalStateException("Unable to find an available template that loads schedule rows.");
     }
 
-    public void selectBuilding(String buildingName) {
+    public void selectBuilding(String buildingName) 
+    {
         selectDropdownOption(new String[]{"Buildings", "Building"}, buildingName);
         waitForLoadingToFinish();
     }
 
-    public void selectZoneCategory(String zoneCategory) {
+    public String selectAnyBuilding()
+    {
+        String selectedBuilding = selectFirstDropdownOption(new String[]{"Buildings", "Building"});
+        waitForLoadingToFinish();
+        return selectedBuilding;
+    }
+
+    public void selectZoneCategory(String zoneCategory) 
+    {
         if (trySelectZoneCategory(zoneCategory)) {
             waitForLoadingToFinish();
             return;
@@ -178,24 +233,28 @@ public class ScheduleInspectionPage {
         waitForLoadingToFinish();
     }
 
-    public String selectAnyZoneCategory() {
+    public String selectAnyZoneCategory() 
+    {
         String selectedZoneCategory = selectFirstDropdownOption(new String[]{"Zone Category", "Zone Category:"});
         waitForLoadingToFinish();
         return selectedZoneCategory;
     }
 
-    public void selectFloor(String floorName) {
+    public void selectFloor(String floorName) 
+    {
         selectDropdownOption(new String[]{"Floor", "Floor:"}, floorName);
         waitForLoadingToFinish();
     }
 
-    public String selectAnyFloor() {
+    public String selectAnyFloor() 
+    {
         String selectedFloor = selectFirstDropdownOption(new String[]{"Floor", "Floor:"});
         waitForLoadingToFinish();
         return selectedFloor;
     }
 
-    public void fillScheduleForm(ScheduleFormData data) {
+    public void fillScheduleForm(ScheduleFormData data) 
+    {
         if (data.template != null) {
             selectTemplate(data.template);
         }
@@ -211,57 +270,321 @@ public class ScheduleInspectionPage {
         fillFirstZoneRow(data);
     }
 
-    public void fillFirstZoneRow(ScheduleFormData data) {
+    public void fillFirstZoneRow(ScheduleFormData data) 
+    {
         Locator row = getRow(data.rowIndex);
         selectRowIfPossible(row);
-        if (data.zone != null) {
+        if (data.zone != null) 
+        {
             fillTableField(row, "Zone", data.zone);
         }
         // if (data.criticality != null) {
         //     fillTableField(row, "Criticality", data.criticality);
         // }
-        if (data.frequency != null) {
+        if (data.frequency != null) 
+        {
             fillTableField(row, "How Often", data.frequency);
         }
-        if (data.startDate != null) {
+        if (data.startDate != null) 
+        {
             fillTableField(row, "Start Date", data.startDate);
         }
-        if (data.endDate != null) {
+        if (data.endDate != null) 
+        {
             fillTableField(row, "End Date", data.endDate);
         }
-        if (data.startTime != null) {
+        if (data.startTime != null) 
+        {
             fillTableField(row, "Start Time", data.startTime);
         }
-        if (data.auditor != null) {
+        if (data.auditor != null) 
+        {
             fillTableField(row, "Auditor", data.auditor);
         }
     }
 
-    public void selectRowByZone(String zoneName) {
-        Locator row = rows.filter(new Locator.FilterOptions().setHasText(zoneName)).first();
-        row.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
-        clearSelectedRowsExcept(row);
-        selectRowIfPossible(row);
+    public boolean isZoneConfigurationMatching(
+        String zone,
+        String auditor,
+        String startDate,
+        String endDate,
+        String time) 
+    {
+        return rowHasAuditor(zone, auditor)
+                && rowHasDateRange(zone, startDate, endDate)
+                && rowHasStartTime(zone, time);
     }
 
-    public void setRowStartDate(String zoneName, String date) {
+    public boolean isRowConfigurationMatching(
+            int rowIndex,
+            String auditor,
+            String startDate,
+            String endDate,
+            String time) 
+    {
+        Locator row = getRow(rowIndex);
+        return rowHasAuditor(row, auditor)
+                && rowHasDateRange(row, startDate, endDate)
+                && rowHasStartTime(row, time);
+    }
+    
+    public void setRowStartDate(String zoneName, String date) 
+    {
         setRowField(zoneName, "Start Date", date);
     }
 
-    public void setRowEndDate(String zoneName, String date) {
+    public void setRowStartDate(int rowIndex, String date) 
+    {
+        fillTableField(getRow(rowIndex), "Start Date", date);
+    }
+
+    public void setRowEndDate(String zoneName, String date) 
+    {
         setRowField(zoneName, "End Date", date);
     }
 
-    public void setRowStartTime(String zoneName, String time) {
+    public void setRowEndDate(int rowIndex, String date) 
+    {
+        fillTableField(getRow(rowIndex), "End Date", date);
+    }
+
+    public boolean isRowDateDisabled(int rowIndex, String fieldName, String date)
+    {
+        Locator row = getRow(rowIndex);
+        int columnIndex = getColumnIndex(fieldName);
+        Locator cell = row.locator("td").nth(columnIndex);
+        Locator picker = cell.locator(".ant-picker").first();
+        picker.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+        picker.click();
+
+        try {
+            return isDateDisabledInOpenPicker(date);
+        } finally {
+            closeVisibleDatePicker();
+        }
+    }
+
+    public void setRowStartTime(String zoneName, String time) 
+    {
         setRowField(zoneName, "Start Time", time);
     }
 
-    public void setRowAuditor(String zoneName, String auditor) {
-        Locator input = page.locator("tr:has-text('" + zoneName + "') input[placeholder='Select Auditor']").first();
-        selectAuditorInput(input, auditor);
+    public void setRowStartTime(int rowIndex, String time) 
+    {
+        fillTableField(getRow(rowIndex), "Start Time", time);
     }
 
-    private void selectAuditorInput(Locator input, String auditor) {
+    public void setRowAuditor(String zoneName, String auditor) 
+    {
+        Locator row = rows.filter(new Locator.FilterOptions().setHasText(zoneName)).first();
+        row.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+        fillAuditorField(row, auditor);
+    }
+
+    public void setRowAuditor(int rowIndex, String auditor) 
+    {
+        Locator row = getRow(rowIndex);
+        row.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+        fillAuditorField(row, auditor);
+    }
+
+    public String getZoneByIndex(int index) 
+    {
+        Locator row = getRow(index);
+        int columnIndex = getColumnIndex("Zone");
+        return row.locator("td").nth(columnIndex).innerText().trim();
+    }
+
+    public void selectFrequency(int rowIndex, FrequencyConfig config) {
+
+    Locator row = getRow(rowIndex);
+    int columnIndex = getColumnIndex("How Often");
+    Locator cell = row.locator("td").nth(columnIndex);
+
+    cell.click(new Locator.ClickOptions().setForce(true));
+
+    Locator popup = waitForRecurrencePopup();
+
+    // Select type
+    selectFrequencyType(popup, config.getType());
+
+    // Set interval
+    setEveryValue(popup, config.getEvery());
+
+    switch (config.getType()) {
+
+        case DAILY:
+            break;
+
+        case WEEKLY:
+            if (config.getDaysOfWeek() != null) {
+                for (String day : config.getDaysOfWeek()) {
+                    clickTextChoice(popup, day);
+                }
+            }
+            break;
+
+        case MONTHLY:
+            if (config.getDates() != null) {
+                clickTextChoice(popup, "On the Dates");
+                for (Integer date : config.getDates()) {
+                    selectMonthlyDate(popup, date);
+                }
+            }
+            break;
+    }
+
+    clickPopupOk(popup);
+
+    waitForLoadingToFinish();
+}
+    public void selectDates(int rowIndex, String startDate, String endDate, String time)
+    {
+        LOGGER.info(() -> "Setting row dates/time for row index " + rowIndex
+                + " start=" + startDate + " end=" + endDate + " time=" + time);
+        setRowStartDate(rowIndex, startDate);
+        setRowEndDate(rowIndex, endDate);
+        setRowStartTime(rowIndex, time);
+    }
+
+    public String getFrequencySummary(int rowIndex)
+    {
+        Locator row = getRow(rowIndex);
+        int columnIndex = getColumnIndex("How Often");
+        return row.locator("td").nth(columnIndex).innerText().trim();
+    }
+
+    public void setScheduleListDateRange(String startDate, String endDate)
+    {
+        LOGGER.info(() -> "Applying schedule list date range " + startDate + " -> " + endDate);
+        Locator rangePicker = page.locator("main .ant-picker-range").first();
+        rangePicker.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+
+        Locator inputs = rangePicker.locator("input");
+        inputs.nth(0).click();
+        selectDateFromPicker(startDate);
+        inputs.nth(1).click();
+        selectDateFromPicker(endDate);
+        waitForScheduleListToRefresh();
+
+          // Click OK on date picker
+        Locator okButton = page.locator(".ant-picker-ok button");
+
+        if (okButton.isVisible()) {
+            okButton.click();
+        }
+        System.out.println("Date filter applied: " + startDate + " → " + endDate);
+        // Wait for table refresh
+        waitForLoadingToFinish();
+    }
+    
+
+    public List<String> getScheduledAuditDates(String zone, String auditor)
+    {
+        List<String> dates = new ArrayList<>();
+        Locator rows = visibleScheduleRows(zone, auditor);
+        int rowCount = rows.count();
+        int auditDateColumnIndex = getSchedulePageColumnIndex("Audit Date");
+
+        for (int index = 0; index < rowCount; index++) {
+            Locator row = rows.nth(index);
+            if (!row.isVisible()) {
+                continue;
+            }
+
+            Locator cell = row.locator("td").nth(auditDateColumnIndex);
+            String text = cell.innerText().trim();
+            if (!text.isBlank()) {
+                dates.add(text);
+            }
+        }
+
+        return dates;
+    }
+
+    public int countScheduledEvents(String zone, String auditor, List<String> expectedDates)
+    {
+        int matches = 0;
+        List<String> actualDates = getScheduledAuditDates(zone, auditor);
+        for (String expectedDate : expectedDates) {
+            if (actualDates.stream().anyMatch(actualDate -> dateValuesMatch(expectedDate, actualDate))) {
+                matches++;
+            }
+        }
+        return matches;
+    }
+
+private int countScheduledEvents(String expectedAuditor,
+                                 LocalDate startDate,
+                                 LocalDate endDate) {
+
+    Locator rows = page.locator("table tbody tr");
+
+    int count = 0;
+    int rowCount = rows.count();
+
+    int auditorCol = getColumnIndex("Auditor");
+    int dateCol = getColumnIndex("Date");
+
+    for (int i = 0; i < rowCount; i++) {
+
+        Locator row = rows.nth(i);
+
+        String auditor = row.locator("td").nth(auditorCol)
+                .innerText().trim();
+
+        String dateText = row.locator("td").nth(dateCol)
+                .innerText().trim();
+
+        LocalDate rowDate = parseDate(dateText);
+
+        if (auditor.equalsIgnoreCase(expectedAuditor)
+                && !rowDate.isBefore(startDate)
+                && !rowDate.isAfter(endDate)) {
+
+            count++;
+        }
+    }
+
+    return count;
+}
+
+    private LocalDate parseDate(String dateText) {
+
+    String text = dateText.trim();
+
+    List<DateTimeFormatter> formats = List.of(
+        DateTimeFormatter.ofPattern("yyyy-MM-dd"),
+        DateTimeFormatter.ofPattern("dd/MM/yyyy"),
+        DateTimeFormatter.ofPattern("dd MMM yyyy"),
+        DateTimeFormatter.ofPattern("MMM d, yyyy"),
+        DateTimeFormatter.ofPattern("d MMM yyyy")
+    );
+
+    for (DateTimeFormatter formatter : formats) {
+        try {
+            return LocalDate.parse(text, formatter);
+        } catch (Exception ignored) {}
+    }
+
+    throw new IllegalArgumentException("Unsupported date format: " + text);
+}
+    public void waitForScheduledEvents(String zone, String auditor, int expectedCount)
+    {
+        long start = System.currentTimeMillis();
+        while (System.currentTimeMillis() - start < DEFAULT_TIMEOUT_MS) {
+            if (visibleScheduleRows(zone, auditor).count() >= expectedCount) {
+                return;
+            }
+            page.waitForTimeout(250);
+        }
+
+        throw new IllegalStateException("Expected at least " + expectedCount
+                + " scheduled rows for zone=" + zone + ", auditor=" + auditor + ".");
+    }
+
+    private void selectAuditorInput(Locator input, String auditor) 
+    {
         input.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
         input.click();
         input.fill(auditor);
@@ -273,55 +596,353 @@ public class ScheduleInspectionPage {
         waitForLoadingToFinish();
     }
 
-    public void clickCopyConfiguration() {
+    private void fillAuditorField(Locator row, String auditor) 
+    {
+        int columnIndex = getColumnIndex("Auditor");
+        Locator cell = row.locator("td").nth(columnIndex);
+        if (cell.count() > 0) {
+            try {
+                cell.click(new Locator.ClickOptions().setForce(true));
+                page.waitForTimeout(200);
+            } catch (RuntimeException ignored) {
+                // Some rows already expose the input without clicking the cell.
+            }
+        }
+
+        Locator input = row.locator("input[placeholder='Select Auditor']").first();
+        if (input.count() > 0) {
+            try {
+                if (input.isVisible()) {
+                    selectAuditorInput(input, auditor);
+                    return;
+                }
+            } catch (RuntimeException ignored) {
+                // Fall back to the combobox-style selector below.
+            }
+        }
+
+        Locator combobox = cell.locator("nz-select, .ant-select, [role='combobox']").first();
+        if (combobox.count() > 0) {
+            selectComboboxValue(cell, combobox, auditor);
+            return;
+        }
+
+        if (input.count() > 0) {
+            selectAuditorInput(input, auditor);
+            return;
+        }
+
+        throw new IllegalStateException("Unable to locate auditor control for the selected row.");
+    }
+
+    private void selectFrequencyType(Locator popup, FrequencyConfig.Type type) {
+        String label = switch (type) {
+            case DAILY -> "Daily";
+            case WEEKLY -> "Weekly";
+            case MONTHLY -> "Monthly";
+        };
+
+        try {
+            clickTextChoice(popup, label);
+            return;
+        } catch (RuntimeException ignored) {
+            // Recurrence type options can render in a detached Ant dropdown.
+        }
+
+        Locator typeSelect = popup.locator(".ant-select:visible, [role='combobox']:visible").first();
+        typeSelect.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+        typeSelect.click(new Locator.ClickOptions().setForce(true));
+        findVisibleDropdownOptionByText(label).click(new Locator.ClickOptions().setForce(true));
+    }
+
+    // private void configureMonthlyRecurrence(Locator popup, FrequencyConfig config) {
+    //     if (config.monthlyMode == MonthlyMode.DATES) {
+    //         clickTextChoice(popup, "On the Dates");
+    //         for (Integer dayOfMonth : config.monthlyDates) {
+    //             clickTextChoice(popup, String.valueOf(dayOfMonth));
+    //         }
+    //         return;
+    //     }
+
+    //     clickTextChoice(popup, "On the Days");
+    //     selectPopupDropdownValue(popup, config.monthlyWeekOrder);
+    //     selectPopupDropdownValue(popup, config.monthlyDayName);
+    // }
+
+   
+
+    private void setEveryValue(Locator popup, int every) {
+        Locator inputs = popup.locator(
+                "input[type='number']:not([readonly]), " +
+                        "input[role='spinbutton']:not([readonly]), " +
+                        ".ant-input-number-input:not([readonly]), " +
+                        "input:not([readonly]):not([type='search']):not([type='radio']):not([type='checkbox']):not([type='hidden'])");
+        long start = System.currentTimeMillis();
+        while (System.currentTimeMillis() - start < DEFAULT_TIMEOUT_MS) {
+            int count = inputs.count();
+            for (int index = 0; index < count; index++) {
+                Locator input = inputs.nth(index);
+                if (input.isVisible() && input.isEnabled()) {
+                    input.fill(String.valueOf(every));
+                    input.press("Tab");
+                    return;
+                }
+            }
+            page.waitForTimeout(250);
+        }
+
+        if (every == 1) {
+            return;
+        }
+
+        throw new IllegalStateException("Unable to locate editable recurrence interval input.");
+    }
+
+    private Locator waitForRecurrencePopup() {
+        Locator popup = page.locator(
+                ".ant-popover:visible, " +
+                        ".ant-modal-root .ant-modal-wrap:visible, " +
+                        ".ant-dropdown:visible")
+                .filter(new Locator.FilterOptions().setHasText("OK"))
+                .last();
+
+        popup.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+        return popup;
+    }
+
+    private void clickPopupOk(Locator popup) {
+        Locator okButton = popup.getByRole(AriaRole.BUTTON,
+                new Locator.GetByRoleOptions().setName(Pattern.compile("^ok$", Pattern.CASE_INSENSITIVE))).first();
+        if (okButton.count() > 0 && okButton.isVisible()) {
+            okButton.click();
+            return;
+        }
+
+        clickTextChoice(popup, "OK");
+    }
+
+    private void clickTextChoice(Locator container, String text) {
+        long start = System.currentTimeMillis();
+        while (System.currentTimeMillis() - start < DEFAULT_TIMEOUT_MS) {
+            if (clickVisibleText(container, text)) {
+                return;
+            }
+
+            Locator visibleOverlay = page.locator(
+                    ".ant-popover:visible, " +
+                            ".ant-dropdown:visible, " +
+                            ".ant-select-dropdown:not(.ant-select-dropdown-hidden), " +
+                            ".ant-modal-root .ant-modal-wrap:visible")
+                    .last();
+            if (visibleOverlay.count() > 0 && clickVisibleText(visibleOverlay, text)) {
+                return;
+            }
+
+            page.waitForTimeout(250);
+        }
+
+        throw new IllegalStateException("Unable to click popup choice: " + text);
+    }
+
+    private boolean clickVisibleText(Locator container, String text) {
+        Locator exactMatch = container.getByText(text, new Locator.GetByTextOptions().setExact(true)).last();
+        if (exactMatch.count() > 0 && exactMatch.isVisible()) {
+            exactMatch.click(new Locator.ClickOptions().setForce(true));
+            return true;
+        }
+
+        Locator containsMatch = container.getByText(text).last();
+        if (containsMatch.count() > 0 && containsMatch.isVisible()) {
+            containsMatch.click(new Locator.ClickOptions().setForce(true));
+            return true;
+        }
+
+        return false;
+    }
+
+    private void selectPopupDropdownValue(Locator popup, String value) {
+        Locator dropdown = popup.locator(".ant-select:visible, [role='combobox']:visible").first();
+        dropdown.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+        dropdown.click(new Locator.ClickOptions().setForce(true));
+        findVisibleDropdownOptionByText(value).click(new Locator.ClickOptions().setForce(true));
+    }
+
+    private void selectMonthlyDate(Locator popup, int date) {
+        String ordinalDate = ordinal(date);
+        Locator datesSelect = popup.locator(".ant-select:visible").last();
+
+        datesSelect.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+        datesSelect.click(new Locator.ClickOptions().setForce(true));
+        findVisibleDropdownOptionByText(ordinalDate).click(new Locator.ClickOptions().setForce(true));
+    }
+
+    private String ordinal(int value) {
+        if (value % 100 >= 11 && value % 100 <= 13) {
+            return value + "th";
+        }
+
+        return switch (value % 10) {
+            case 1 -> value + "st";
+            case 2 -> value + "nd";
+            case 3 -> value + "rd";
+            default -> value + "th";
+        };
+    }
+    public void selectRowByZone(String zoneName, boolean multiSelect) 
+    {
+        Locator row = rows.filter(new Locator.FilterOptions().setHasText(zoneName)).first();
+        row.waitFor();
+
+        if (!multiSelect) 
+        {
+        clearSelectedRowsExcept(row);
+        }
+
+        selectRowIfPossible(row);
+    }
+
+    public void selectRowByIndex(int rowIndex, boolean multiSelect) 
+    {
+        Locator row = getRow(rowIndex);
+        if (!multiSelect) {
+            clearSelectedRowsExcept(row);
+        }
+        selectRowIfPossible(row);
+    }
+
+    public void clickCopyConfiguration() 
+    {
         copyConfigurationButton.click();
         waitForLoadingToFinish();
     }
 
-    public void clickSave() {
+    public void clickSave() 
+    {
         waitForLoadingToFinish();
-        try {
+        clearFeedbackSnapshot();
+        try 
+        {
             saveButton.click(new Locator.ClickOptions().setTimeout(5000));
-        } catch (RuntimeException ex) {
+        } 
+        catch (RuntimeException ex) 
+        {
             clickVisibleModalButton("save");
         }
         waitForLoadingToFinish();
         waitForPostSaveFeedback();
+        closeSuccessPopupIfPresent();
     }
 
-    public void clickCancel() {
+    public void clickCancel() 
+    {
         cancelButton.click();
         modal.waitFor(new Locator.WaitForOptions().setState(WaitForSelectorState.HIDDEN).setTimeout(DEFAULT_TIMEOUT_MS));
     }
 
-    public boolean isSaveButtonDisabled() {
+    public boolean isSaveButtonDisabled() 
+    {
         return !saveButton.isEnabled();
     }
 
-    public String getToastMessage() {
-        toastMessage.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
-        return toastMessage.innerText().trim();
+    public String getToastMessage() 
+    {
+        if (!lastFeedbackMessage.isBlank()) {
+            return lastFeedbackMessage;
+        }
+        long start = System.currentTimeMillis();
+        while (System.currentTimeMillis() - start < DEFAULT_TIMEOUT_MS) {
+            String feedback = readVisibleFeedbackText();
+            if (!feedback.isBlank()) {
+                return feedback;
+            }
+            page.waitForTimeout(250);
+        }
+        throw new IllegalStateException("Unable to find a visible feedback message.");
     }
 
-    public String getToastMessageIfPresent(double timeoutMs) {
+    public String getToastMessageIfPresent(double timeoutMs) 
+    {
+        if (!lastFeedbackMessage.isBlank()) {
+            return lastFeedbackMessage;
+        }
         long start = System.currentTimeMillis();
         while (System.currentTimeMillis() - start < timeoutMs) {
-            if (toastMessage.count() > 0 && toastMessage.isVisible()) {
-                return toastMessage.innerText().trim();
+            String feedback = readVisibleFeedbackText();
+            if (!feedback.isBlank()) {
+                return feedback;
             }
             page.waitForTimeout(250);
         }
         return "";
     }
 
-    public boolean hasScheduledInspectionForAuditor(String auditor) {
+    public boolean hasScheduledInspectionForAuditor(String auditor) 
+    {
         Locator scheduledRows = page.locator(".custom-table tbody tr")
                 .filter(new Locator.FilterOptions().setHasText("Scheduled"))
                 .filter(new Locator.FilterOptions().setHasText(auditor));
         return scheduledRows.count() > 0;
     }
 
-    public List<String> getValidationMessages() {
+    public boolean rowHasAuditor(String zone, String auditor) 
+    {
+        Locator row = rows.filter(new Locator.FilterOptions().setHasText(zone)).first();
+        row.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+        return rowHasAuditor(row, auditor);
+    }
+
+    public boolean rowHasDateRange(String zone, String startDate, String endDate) 
+    {
+        Locator row = rows.filter(new Locator.FilterOptions().setHasText(zone)).first();
+        row.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+        return rowHasDateRange(row, startDate, endDate);
+    }
+
+    public boolean rowHasStartTime(String zone, String time) 
+    {
+        Locator row = rows.filter(new Locator.FilterOptions().setHasText(zone)).first();
+        row.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+        return rowHasStartTime(row, time);
+    }
+
+    private boolean rowHasAuditor(Locator row, String auditor) 
+    {
+        Locator input = row.locator("input[placeholder='Select Auditor']").first();
+        if (input.count() > 0) {
+            String value = input.inputValue().trim();
+            if (!value.isBlank()) {
+                return value.equalsIgnoreCase(auditor);
+            }
+        }
+
+        return row.innerText().toLowerCase().contains(auditor.toLowerCase());
+    }
+
+    private boolean rowHasDateRange(Locator row, String startDate, String endDate) 
+    {
+        Locator dateInputs = row.locator(".ant-picker input");
+        if (dateInputs.count() >= 2) {
+            return dateValuesMatch(startDate, dateInputs.nth(0).inputValue().trim())
+                    && dateValuesMatch(endDate, dateInputs.nth(1).inputValue().trim());
+        }
+
+        String rowText = row.innerText();
+        return rowTextContainsNormalizedDate(rowText, startDate)
+                && rowTextContainsNormalizedDate(rowText, endDate);
+    }
+
+    private boolean rowHasStartTime(Locator row, String time) 
+    {
+        Locator timeInput = row.locator("input[placeholder='Select time']").first();
+        if (timeInput.count() > 0) {
+            return timeValuesMatch(time, timeInput.inputValue().trim());
+        }
+
+        return rowTextContainsNormalizedTime(row.innerText(), time);
+    }
+
+    public List<String> getValidationMessages() 
+    {
         List<String> messages = new ArrayList<>();
         int count = validationMessages.count();
         for (int index = 0; index < count; index++) {
@@ -330,12 +951,30 @@ public class ScheduleInspectionPage {
                 messages.add(text);
             }
         }
-        return messages;
+        if (!messages.isEmpty()) {
+            return messages;
+        }
+        return new ArrayList<>(lastValidationMessages);
     }
 
     public boolean hasValidationMessageContaining(String expectedText) {
-        return getValidationMessages().stream()
-                .anyMatch(message -> message.toLowerCase().contains(expectedText.toLowerCase()));
+        String normalizedExpectedText = expectedText.toLowerCase(Locale.ENGLISH);
+        if (getValidationMessages().stream()
+                .anyMatch(message -> message.toLowerCase(Locale.ENGLISH).contains(normalizedExpectedText))) {
+            return true;
+        }
+
+        if (!lastFeedbackMessage.isBlank()
+                && lastFeedbackMessage.toLowerCase(Locale.ENGLISH).contains(normalizedExpectedText)) {
+            return true;
+        }
+
+        if (isModalOpen()) {
+            String modalText = modal.innerText().toLowerCase(Locale.ENGLISH);
+            return modalText.contains(normalizedExpectedText);
+        }
+
+        return false;
     }
 
     public int getZoneRowCount() {
@@ -439,8 +1078,8 @@ public class ScheduleInspectionPage {
                 container = findFieldContainer(fieldLabel);
                 if (container.isVisible()) {
                     break;
-                }
-            } catch (RuntimeException ignored) {
+            } }
+            catch (RuntimeException ignored) {
                 container = null;
             }
         }
@@ -588,11 +1227,8 @@ public class ScheduleInspectionPage {
 
     private void fillTableField(Locator row, String fieldName, String value) {
         if ("Auditor".equalsIgnoreCase(fieldName)) {
-            Locator auditorInput = row.locator("input[placeholder='Select Auditor']").first();
-            if (auditorInput.count() > 0) {
-                selectAuditorInput(auditorInput, value);
-                return;
-            }
+            fillAuditorField(row, value);
+            return;
         }
 
         int columnIndex = getColumnIndex(fieldName);
@@ -665,7 +1301,7 @@ public class ScheduleInspectionPage {
             }
 
             try {
-                checkbox.uncheck(new Locator.CheckOptions().setForce(true));
+                checkbox.uncheck(new Locator.UncheckOptions().setForce(true));
             } catch (RuntimeException ignored) {
                 row.locator(".ant-checkbox-wrapper, .ant-checkbox").first()
                         .click(new Locator.ClickOptions().setForce(true));
@@ -676,16 +1312,37 @@ public class ScheduleInspectionPage {
     private void waitForPostSaveFeedback() {
         long start = System.currentTimeMillis();
         while (System.currentTimeMillis() - start < DEFAULT_TIMEOUT_MS) {
-            if (toastMessage.count() > 0 && toastMessage.isVisible()) {
+            captureFeedbackSnapshot();
+            if (!lastFeedbackMessage.isBlank()) {
                 return;
             }
-            if (validationMessages.count() > 0) {
+            if (!lastValidationMessages.isEmpty()) {
                 return;
             }
             if (!isModalOpen()) {
                 return;
             }
             page.waitForTimeout(250);
+        }
+    }
+
+    private void clearFeedbackSnapshot() {
+        lastFeedbackMessage = "";
+        lastValidationMessages.clear();
+    }
+
+    private void captureFeedbackSnapshot() {
+        String feedback = readVisibleFeedbackText();
+        if (!feedback.isBlank()) {
+            lastFeedbackMessage = feedback;
+        }
+
+        int count = validationMessages.count();
+        for (int index = 0; index < count; index++) {
+            String text = validationMessages.nth(index).innerText().trim();
+            if (!text.isBlank() && !lastValidationMessages.contains(text)) {
+                lastValidationMessages.add(text);
+            }
         }
     }
 
@@ -769,6 +1426,41 @@ public class ScheduleInspectionPage {
         throw new IllegalStateException("Unable to select date from picker: " + value);
     }
 
+    private boolean isDateDisabledInOpenPicker(String value) {
+        Locator visibleDropdown = page.locator(".ant-picker-dropdown:not(.ant-picker-dropdown-hidden)").last();
+        visibleDropdown.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+
+        LocalDate targetDate = LocalDate.parse(value);
+        String dateTitle = targetDate.toString();
+        Locator targetCell = visibleDropdown.locator(
+                String.format("td.ant-picker-cell[title='%s'], .ant-picker-cell[title='%s']", dateTitle, dateTitle));
+
+        long start = System.currentTimeMillis();
+        while (System.currentTimeMillis() - start < DEFAULT_TIMEOUT_MS) {
+            if (targetCell.count() > 0 && targetCell.first().isVisible()) {
+                String classes = targetCell.first().getAttribute("class");
+                return classes != null && classes.contains("ant-picker-cell-disabled");
+            }
+
+            Locator nextButton = visibleDropdown.locator(".ant-picker-header-next-btn, button[aria-label='Next month']").first();
+            if (nextButton.count() == 0 || !nextButton.isVisible()) {
+                break;
+            }
+            nextButton.click();
+            page.waitForTimeout(250);
+        }
+
+        throw new IllegalStateException("Unable to find date in picker: " + value);
+    }
+
+    private void closeVisibleDatePicker() {
+        Locator visibleDropdown = page.locator(".ant-picker-dropdown:not(.ant-picker-dropdown-hidden)").last();
+        if (visibleDropdown.count() > 0 && visibleDropdown.isVisible()) {
+            page.keyboard().press("Escape");
+            page.waitForTimeout(200);
+        }
+    }
+
     private void selectTimeFromPicker(String value) {
         Locator visibleDropdown = page.locator(".ant-picker-dropdown:not(.ant-picker-dropdown-hidden)").last();
         visibleDropdown.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
@@ -802,7 +1494,81 @@ public class ScheduleInspectionPage {
         try {
             return LocalTime.parse(value, UI_TIME_FORMAT);
         } catch (DateTimeParseException ignored) {
-            return LocalTime.parse(value.toUpperCase(), UI_TIME_FORMAT_12_HOUR);
+            return LocalTime.parse(value.toUpperCase(Locale.ENGLISH), UI_TIME_FORMAT_12_HOUR);
+        }
+    }
+
+    private boolean dateValuesMatch(String expected, String actual) {
+        Optional<LocalDate> expectedDate = parseUiDate(expected);
+        Optional<LocalDate> actualDate = parseUiDate(actual);
+        if (expectedDate.isPresent() && actualDate.isPresent()) {
+            return expectedDate.get().equals(actualDate.get());
+        }
+        return expected.equalsIgnoreCase(actual);
+    }
+
+    private boolean timeValuesMatch(String expected, String actual) {
+        Optional<LocalTime> expectedTime = parseFlexibleTime(expected);
+        Optional<LocalTime> actualTime = parseFlexibleTime(actual);
+        if (expectedTime.isPresent() && actualTime.isPresent()) {
+            return expectedTime.get().equals(actualTime.get());
+        }
+        return expected.equalsIgnoreCase(actual);
+    }
+
+    private boolean rowTextContainsNormalizedDate(String rowText, String expectedDate) {
+        Optional<LocalDate> parsedExpected = parseUiDate(expectedDate);
+        if (parsedExpected.isEmpty()) {
+            return rowText.contains(expectedDate);
+        }
+
+        String isoDate = parsedExpected.get().format(DateTimeFormatter.ISO_LOCAL_DATE);
+        String slashDate = parsedExpected.get().format(DateTimeFormatter.ofPattern("yyyy/MM/dd", Locale.ENGLISH));
+        return rowText.contains(isoDate) || rowText.contains(slashDate);
+    }
+
+    private boolean rowTextContainsNormalizedTime(String rowText, String expectedTime) {
+        Optional<LocalTime> parsedExpected = parseFlexibleTime(expectedTime);
+        if (parsedExpected.isEmpty()) {
+            return rowText.toLowerCase(Locale.ENGLISH).contains(expectedTime.toLowerCase(Locale.ENGLISH));
+        }
+
+        String twentyFourHour = parsedExpected.get().format(UI_TIME_FORMAT);
+        String twelveHour = parsedExpected.get().format(UI_TIME_FORMAT_12_HOUR);
+        String normalizedRowText = rowText.toLowerCase(Locale.ENGLISH);
+        return normalizedRowText.contains(twentyFourHour.toLowerCase(Locale.ENGLISH))
+                || normalizedRowText.contains(twelveHour.toLowerCase(Locale.ENGLISH));
+    }
+
+    private Optional<LocalDate> parseUiDate(String value) {
+        if (value == null || value.isBlank()) {
+            return Optional.empty();
+        }
+
+        List<DateTimeFormatter> formatters = List.of(
+                DateTimeFormatter.ISO_LOCAL_DATE,
+                DateTimeFormatter.ofPattern("yyyy/MM/dd", Locale.ENGLISH),
+                DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ENGLISH));
+
+        for (DateTimeFormatter formatter : formatters) {
+            try {
+                return Optional.of(LocalDate.parse(value.trim(), formatter));
+            } catch (DateTimeParseException ignored) {
+                // Try the next supported UI format.
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<LocalTime> parseFlexibleTime(String value) {
+        if (value == null || value.isBlank()) {
+            return Optional.empty();
+        }
+
+        try {
+            return Optional.of(parseUiTime(value.trim()));
+        } catch (DateTimeParseException ignored) {
+            return Optional.empty();
         }
     }
 
@@ -842,7 +1608,7 @@ public class ScheduleInspectionPage {
                 "const rect = element.getBoundingClientRect();" +
                 "return label === normalizedText && rect.width > 0 && rect.height > 0;" +
                 "});" +
-                "if (!button) throw new Error(`Unable to find visible modal button: ${text}`);" +
+                "if (!button) throw new Error(`Unable to find visible modal button: `);" +
                 "button.click();" +
                 "}", buttonText);
     }
@@ -864,6 +1630,36 @@ public class ScheduleInspectionPage {
         }
     }
 
+    private String readVisibleFeedbackText() {
+        Locator notification = page.locator(".ant-notification-notice:visible, .ant-message-notice:visible").first();
+        if (notification.count() > 0 && notification.isVisible()) {
+            return notification.innerText().trim();
+        }
+
+        Locator sweetAlert = page.locator(".swal-overlay--show-modal .swal-modal:visible").first();
+        if (sweetAlert.count() > 0 && sweetAlert.isVisible()) {
+            return sweetAlert.innerText().trim();
+        }
+
+        Locator sweetAlert2Title = page.locator(".swal2-container .swal2-title:visible").first();
+        Locator sweetAlert2Body = page.locator(".swal2-container .swal2-html-container:visible").first();
+        if (sweetAlert2Title.count() > 0 && sweetAlert2Title.isVisible()) {
+            String titleText = sweetAlert2Title.innerText().trim();
+            String bodyText = "";
+            if (sweetAlert2Body.count() > 0 && sweetAlert2Body.isVisible()) {
+                bodyText = sweetAlert2Body.innerText().trim();
+            }
+            return (titleText + " " + bodyText).trim();
+        }
+
+        Locator alert = page.locator("[role='alert']:visible").first();
+        if (alert.count() > 0 && alert.isVisible()) {
+            return alert.innerText().trim();
+        }
+
+        return "";
+    }
+
     private Locator findFieldContainer(String label) {
         Locator container = modal.locator("xpath=.//*[normalize-space()='" + label + "']/ancestor::*[self::div or self::nz-form-item][1]").first();
         if (container.count() == 0) {
@@ -873,18 +1669,147 @@ public class ScheduleInspectionPage {
         return container;
     }
 
+    // private int getColumnIndex(String columnName) {
+    //     int headerCount = modal.locator("thead th").count();
+    //     for (int index = 0; index < headerCount; index++) {
+    //         String headerText = modal.locator("thead th").nth(index).innerText().trim();
+    //         if (headerText.equalsIgnoreCase(columnName)) {
+    //             return index;
+    //         }
+    //         if (columnName.equalsIgnoreCase("Start Time") && headerText.equalsIgnoreCase("StartTime")) {
+    //             return index;
+    //         }
+    //     }
+    //     throw new IllegalStateException("Unable to find table column: " + columnName);
+    // }
+
     private int getColumnIndex(String columnName) {
-        int headerCount = modal.locator("thead th").count();
-        for (int index = 0; index < headerCount; index++) {
-            String headerText = modal.locator("thead th").nth(index).innerText().trim();
+        Locator modalHeaders = modal.locator("table thead th");
+        if (modalHeaders.count() > 0 && modal.isVisible()) {
+            Optional<Integer> modalIndex = findColumnIndex(modalHeaders, columnName);
+            if (modalIndex.isPresent()) {
+                return modalIndex.get();
+            }
+        }
+
+        return findColumnIndex(page.locator("main table thead th"), columnName)
+                .orElseThrow(() -> new IllegalStateException("Column not found: " + columnName));
+    }
+
+    private Optional<Integer> findColumnIndex(Locator headers, String columnName) {
+        String target = normalizeColumnName(columnName);
+        int count = headers.count();
+
+        for (int i = 0; i < count; i++) {
+            if (normalizeColumnName(headers.nth(i).innerText()).equals(target)) {
+                return Optional.of(i);
+            }
+        }
+
+        for (int i = 0; i < count; i++) {
+            String headerText = normalizeColumnName(headers.nth(i).innerText());
+            if (headerText.contains(target) || target.contains(headerText)) {
+                return Optional.of(i);
+            }
+        }
+
+        return Optional.empty();
+    }
+
+    private String normalizeColumnName(String value) {
+        String normalized = value.trim().toLowerCase(Locale.ENGLISH).replaceAll("\\s+", " ");
+        if (normalized.equals("start time")) {
+            return "starttime";
+        }
+        if (normalized.equals("date")) {
+            return "audit date";
+        }
+        return normalized;
+    }
+
+    // private void waitForFrequencySummary(int rowIndex, List<String> expectedTokens) {
+    //     long start = System.currentTimeMillis();
+    //     while (System.currentTimeMillis() - start < DEFAULT_TIMEOUT_MS) {
+    //         String summary = getFrequencySummary(rowIndex).toLowerCase(Locale.ENGLISH);
+    //         boolean allPresent = summaryMatchesExpectedTokens(summary, expectedTokens);
+    //         if (allPresent) {
+    //             return;
+    //         }
+    //         page.waitForTimeout(250);
+    //     }
+
+    //     throw new IllegalStateException(
+    //             "Frequency summary did not contain expected tokens: " + expectedTokens
+    //                     + ". Actual summary: '" + getFrequencySummary(rowIndex) + "'");
+    // }
+
+    // private boolean summaryMatchesExpectedTokens(String summary, List<String> expectedTokens) {
+    //     for (String expectedToken : expectedTokens) {
+    //         String normalizedToken = expectedToken.toLowerCase(Locale.ENGLISH);
+    //         if (summary.contains(normalizedToken)) {
+    //             continue;
+    //         }
+
+    //         if (isSingularIntervalToken(normalizedToken) && summaryContainsFrequencyWord(summary, expectedTokens)) {
+    //             continue;
+    //         }
+
+    //         if (matchesNaturalLanguageFrequency(summary, normalizedToken)) {
+    //             continue;
+    //         }
+
+    //         return false;
+    //     }
+    //     return true;
+    // }
+
+    // private boolean isSingularIntervalToken(String normalizedToken) {
+    //     return "1".equals(normalizedToken);
+    // }
+
+    // private boolean summaryContainsFrequencyWord(String summary, List<String> expectedTokens) {
+    //     return expectedTokens.stream()
+    //             .map(token -> token.toLowerCase(Locale.ENGLISH))
+    //             .filter(token -> !"1".equals(token))
+    //             .anyMatch(summary::contains);
+    // }
+
+    // private boolean matchesNaturalLanguageFrequency(String summary, String normalizedToken) {
+    //     return switch (normalizedToken) {
+    //         case "daily" -> summary.contains("every day");
+    //         case "monthly" -> summary.contains("every month");
+    //         // case "yearly" -> summary.contains("every year");
+    //         default -> false;
+    //     };
+    // }
+
+    private void waitForScheduleListToRefresh() {
+        page.waitForLoadState(LoadState.DOMCONTENTLOADED);
+        Locator skeleton = page.locator("main .ant-skeleton:visible, main .ant-spin-spinning:visible");
+        if (skeleton.count() > 0) {
+            skeleton.first().waitFor(new Locator.WaitForOptions()
+                    .setState(WaitForSelectorState.HIDDEN)
+                    .setTimeout(DEFAULT_TIMEOUT_MS));
+        }
+    }
+
+    private Locator visibleScheduleRows(String zone, String auditor) {
+        waitForScheduleListToRefresh();
+        return page.locator("main tbody tr")
+                .filter(new Locator.FilterOptions().setHasText(zone))
+                .filter(new Locator.FilterOptions().setHasText(auditor));
+    }
+
+    private int getSchedulePageColumnIndex(String columnName) {
+        Locator headers = page.locator("main thead th");
+        int count = headers.count();
+        for (int index = 0; index < count; index++) {
+            String headerText = headers.nth(index).innerText().trim();
             if (headerText.equalsIgnoreCase(columnName)) {
                 return index;
             }
-            if (columnName.equalsIgnoreCase("Start Time") && headerText.equalsIgnoreCase("StartTime")) {
-                return index;
-            }
         }
-        throw new IllegalStateException("Unable to find table column: " + columnName);
+        throw new IllegalStateException("Unable to find schedule page column: " + columnName);
     }
 
     public static class ScheduleFormData {
@@ -956,11 +1881,147 @@ public class ScheduleInspectionPage {
             return this;
         }
 
-        public ScheduleFormData withRowIndex(int rowIndex) {
+        public ScheduleFormData withRowIndex(int rowIndex) 
+        {
             this.rowIndex = rowIndex;
             return this;
         }
+        public String getZone() 
+        {
+            return zone;
+        }
+
+        public String getAuditor() 
+        {
+            return auditor;
+        }
+
+        public String getStartDate() 
+        {
+            return startDate;
+        }
+
+        public String getEndDate() 
+        {
+            return endDate;
+        }
+
+        public String getStartTime() 
+        {
+            return startTime;
+        }
     }
+
+    public enum FrequencyType {
+        DAILY("Daily"),
+        MONTHLY("Monthly"),
+        YEARLY("Yearly");
+
+        private final String label;
+
+        FrequencyType(String label) {
+            this.label = label;
+        }
+    }
+
+    public enum MonthlyMode {
+        DATES,
+        DAYS
+    }
+
+    public enum RecurrenceMonth {
+        JANUARY("January", Month.JANUARY),
+        FEBRUARY("February", Month.FEBRUARY),
+        MARCH("March", Month.MARCH),
+        APRIL("April", Month.APRIL),
+        MAY("May", Month.MAY),
+        JUNE("June", Month.JUNE),
+        JULY("July", Month.JULY),
+        AUGUST("August", Month.AUGUST),
+        SEPTEMBER("September", Month.SEPTEMBER),
+        OCTOBER("October", Month.OCTOBER),
+        NOVEMBER("November", Month.NOVEMBER),
+        DECEMBER("December", Month.DECEMBER);
+
+        private final String label;
+        private final Month month;
+
+        RecurrenceMonth(String label, Month month) {
+            this.label = label;
+            this.month = month;
+        }
+
+        public Month month() {
+            return month;
+        }
+    }
+
+    public static class FrequencyConfig {
+
+    public enum Type {
+        DAILY,
+        WEEKLY,
+        MONTHLY
+    }
+
+    private Type type;
+    private int every;
+    private List<String> daysOfWeek;
+    private List<Integer> dates;
+    private String monthlyMode;          // "DATES" or "DAYS"
+    private List<Integer> monthlyDates;  // e.g., [5, 10]
+    private String monthlyWeekOrder;     // e.g., "First", "Second"
+    private String monthlyDayName;       // e.g., "Monday"
+
+
+    public static FrequencyConfig daily(int every) {
+        FrequencyConfig config = new FrequencyConfig();
+        config.type = Type.DAILY;
+        config.every = every;
+        return config;
+    }
+
+    public static FrequencyConfig weekly(int every, List<String> days) {
+        FrequencyConfig config = new FrequencyConfig();
+        config.type = Type.WEEKLY;
+        config.every = every;
+        config.daysOfWeek = days;
+        return config;
+    }
+
+    public static FrequencyConfig monthlyOnDates(int every, List<Integer> dates) {
+        FrequencyConfig config = new FrequencyConfig();
+        config.type = Type.MONTHLY;
+        config.every = every;
+        config.dates = dates;
+        return config;
+    }
+
+
+    public String getMonthlyMode() { return monthlyMode; }
+    public List<Integer> getMonthlyDates() { return monthlyDates; }
+    public String getMonthlyWeekOrder() { return monthlyWeekOrder; }
+    public String getMonthlyDayName() { return monthlyDayName; }
+    
+
+    // ✅ REQUIRED GETTERS
+
+    public Type getType() {
+        return type;
+    }
+
+    public int getEvery() {
+        return every;
+    }
+
+    public List<String> getDaysOfWeek() {
+        return daysOfWeek;
+    }
+
+    public List<Integer> getDates() {
+        return dates;
+    }
+}
 }
 
  

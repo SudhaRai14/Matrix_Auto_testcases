@@ -112,7 +112,9 @@ public class AuditPage {
         } catch (RuntimeException ex) {
             navigateDirectlyToSchedule();
         }
-        PlaywrightAssertions.assertThat(scheduleInspectionButton).isVisible();
+        if (!hasVisibleScheduleInspectionButton()) {
+            throw new IllegalStateException("Schedule page loaded, but the Schedule Inspection button was not visible.");
+        }
     }
 
     public void selectFirstBuildingFromTopBar() {
@@ -135,18 +137,16 @@ public class AuditPage {
 
     public void clickScheduleInspectionButton() {
         waitForSchedulePageReady();
-        scheduleInspectionButton.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
-        PlaywrightAssertions.assertThat(scheduleInspectionButton).isVisible();
         RuntimeException lastException = null;
 
         for (int attempt = 1; attempt <= 2; attempt++) {
             try {
-                scheduleInspectionButton.click(new Locator.ClickOptions().setForce(true).setTimeout(DEFAULT_TIMEOUT_MS));
-                if (hasAttachedScheduleDialog()) {
-                    page.waitForTimeout(500);
+                Locator button = findVisibleScheduleInspectionButton();
+                button.click(new Locator.ClickOptions().setForce(true).setTimeout(DEFAULT_TIMEOUT_MS));
+                if (hasVisibleScheduleDialog()) {
                     return;
                 }
-                page.waitForTimeout(750L * attempt);
+                page.waitForTimeout(1000L * attempt);
             } catch (RuntimeException ex) {
                 lastException = ex;
                 page.waitForTimeout(750L * attempt);
@@ -159,7 +159,7 @@ public class AuditPage {
     }
 
     public boolean isScheduleInspectionButtonVisible() {
-        return scheduleInspectionButton.isVisible();
+        return hasVisibleScheduleInspectionButton();
     }
 
     public void waitForSchedulePageReady() {
@@ -175,7 +175,16 @@ public class AuditPage {
 
     private void waitForSchedulePage() {
         page.waitForURL("**/#/schedule/**", new Page.WaitForURLOptions().setTimeout(DEFAULT_TIMEOUT_MS));
-        scheduleInspectionButton.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+        long start = System.currentTimeMillis();
+
+        while (System.currentTimeMillis() - start < DEFAULT_TIMEOUT_MS) {
+            if (hasVisibleScheduleInspectionButton()) {
+                return;
+            }
+            page.waitForTimeout(250);
+        }
+
+        throw new IllegalStateException("Schedule page loaded, but the Schedule Inspection button never became visible.");
     }
 
     private void navigateDirectlyToAudits() {
@@ -232,6 +241,47 @@ public class AuditPage {
         } catch (RuntimeException ex) {
             return false;
         }
+    }
+
+    private boolean hasVisibleScheduleDialog() {
+        Locator dialog = page.locator(
+                ".ant-modal-root .ant-modal.newSchedule:visible, " +
+                        ".ant-modal-root [role='dialog']:visible")
+                .first();
+        try {
+            return dialog.count() > 0 && dialog.isVisible();
+        } catch (RuntimeException ex) {
+            return false;
+        }
+    }
+
+    private boolean hasVisibleScheduleInspectionButton() {
+        try {
+            return findVisibleScheduleInspectionButton().isVisible();
+        } catch (RuntimeException ex) {
+            return false;
+        }
+    }
+
+    private Locator findVisibleScheduleInspectionButton() {
+        Locator candidates = page.locator(
+                "button.ant-btn.ant-btn-primary:has-text('Schedule Inspection'), " +
+                        "button:has-text('Schedule Inspection'), " +
+                        "a:has-text('Schedule Inspection'), " +
+                        "[role='button']:has-text('Schedule Inspection')");
+
+        int count = candidates.count();
+        for (int index = 0; index < count; index++) {
+            Locator candidate = candidates.nth(index);
+            if (candidate.isVisible()) {
+                return candidate;
+            }
+        }
+
+        Locator roleButton = page.getByRole(AriaRole.BUTTON,
+                new Page.GetByRoleOptions().setName(Pattern.compile("schedule inspection", Pattern.CASE_INSENSITIVE))).first();
+        roleButton.waitFor(new Locator.WaitForOptions().setTimeout(1000));
+        return roleButton;
     }
 
     private RouteContext resolveRouteContext() {

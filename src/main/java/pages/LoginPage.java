@@ -48,7 +48,9 @@ public class LoginPage {
     public void navigate(String url) {
         page.navigate(url);
         page.waitForLoadState(LoadState.DOMCONTENTLOADED);
-        waitForLoginForm();
+        if (page.url().contains("#/login")) {
+            waitForLoginForm();
+        }
     }
 
     public void login(String username, String password) {
@@ -150,6 +152,19 @@ public class LoginPage {
             return true;
         } catch (RuntimeException ex) {
             return page.url().contains("#/home");
+        }
+    }
+
+    public boolean isLoginFormVisible() {
+        try {
+            return usernameInput.count() > 0
+                    && passwordInput.count() > 0
+                    && loginButton.count() > 0
+                    && usernameInput.isVisible()
+                    && passwordInput.isVisible()
+                    && loginButton.isVisible();
+        } catch (RuntimeException ex) {
+            return false;
         }
     }
 

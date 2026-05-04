@@ -77,6 +77,7 @@ public class BaseTest {
         if (playwright != null) {
             playwright.close();
         }
+        
     }
 
     protected void loginWithValidCredentials() {
@@ -215,4 +216,5 @@ public class BaseTest {
         scheduleInspectionPage = new ScheduleInspectionPage(page);
         page.waitForTimeout(1000L * attempt);
     }
+    
 }
