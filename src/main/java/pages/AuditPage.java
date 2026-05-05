@@ -139,11 +139,16 @@ public class AuditPage {
         waitForSchedulePageReady();
         RuntimeException lastException = null;
 
-        for (int attempt = 1; attempt <= 2; attempt++) {
+        for (int attempt = 1; attempt <= 3; attempt++) {
             try {
                 Locator button = findVisibleScheduleInspectionButton();
                 button.click(new Locator.ClickOptions().setForce(true).setTimeout(DEFAULT_TIMEOUT_MS));
-                if (hasVisibleScheduleDialog()) {
+                if (waitForVisibleScheduleDialog(5000)) {
+                    return;
+                }
+
+                button.evaluate("element => element.click()");
+                if (waitForVisibleScheduleDialog(5000)) {
                     return;
                 }
                 page.waitForTimeout(1000L * attempt);
@@ -156,6 +161,7 @@ public class AuditPage {
         if (lastException != null) {
             throw lastException;
         }
+        throw new IllegalStateException("Schedule Inspection button was clicked, but the Schedule Audit dialog did not open.");
     }
 
     public boolean isScheduleInspectionButtonVisible() {
@@ -245,14 +251,25 @@ public class AuditPage {
 
     private boolean hasVisibleScheduleDialog() {
         Locator dialog = page.locator(
-                ".ant-modal-root .ant-modal.newSchedule:visible, " +
-                        ".ant-modal-root [role='dialog']:visible")
+                ".ant-modal-root .ant-modal.newSchedule:visible:not(.ant-zoom-leave):not(.ant-zoom-leave-active), " +
+                        ".ant-modal-root [role='dialog']:visible:not(.ant-zoom-leave):not(.ant-zoom-leave-active)")
                 .first();
         try {
             return dialog.count() > 0 && dialog.isVisible();
         } catch (RuntimeException ex) {
             return false;
         }
+    }
+
+    private boolean waitForVisibleScheduleDialog(double timeoutMs) {
+        long start = System.currentTimeMillis();
+        while (System.currentTimeMillis() - start < timeoutMs) {
+            if (hasVisibleScheduleDialog()) {
+                return true;
+            }
+            page.waitForTimeout(250);
+        }
+        return false;
     }
 
     private boolean hasVisibleScheduleInspectionButton() {

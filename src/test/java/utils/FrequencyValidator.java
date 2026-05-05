@@ -2,7 +2,8 @@ package utils;
 
 import java.util.*;
 import org.testng.Assert;
-import pages.ScheduleInspectionPage.FrequencyConfig;
+
+import models.FrequencyConfig;
 
 
 

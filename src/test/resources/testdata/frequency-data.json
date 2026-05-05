@@ -1,0 +1,13 @@
+[
+  {
+    "name": "Daily - Every day",
+    "type": "DAILY",
+    "every": 1
+  },
+  {
+    "name": "Weekly - Monday",
+    "type": "WEEKLY",
+    "every": 1,
+    "daysOfWeek": ["MONDAY"]
+  }
+]

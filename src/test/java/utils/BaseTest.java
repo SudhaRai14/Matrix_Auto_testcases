@@ -6,8 +6,11 @@ import com.microsoft.playwright.ConsoleMessage;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.PlaywrightException;
+import com.microsoft.playwright.options.AriaRole;
 import com.microsoft.playwright.options.LoadState;
 import com.microsoft.playwright.options.ScreenshotType;
+import com.microsoft.playwright.options.WaitForSelectorState;
+import com.microsoft.playwright.Locator;
 import org.testng.Assert;
 import org.testng.SkipException;
 import org.testng.annotations.AfterMethod;
@@ -196,17 +199,128 @@ public class BaseTest {
         return value == null || value.isBlank();
     }
 
+    // private void openScheduleInspectionModalOnce() {
+
+    // auditPage.openScheduleTab();
+    // auditPage.waitForSchedulePageReady();
+    // page.waitForLoadState(LoadState.NETWORKIDLE);
+
+    // captureStep("06-schedule-tab");
+
+    // auditPage.selectFirstBuildingFromTopBar();
+    // captureStep("06b-schedule-building-selected");
+
+    // for (int i = 0; i < 2; i++) {
+
+    //     auditPage.clickScheduleInspectionButton();
+    //     captureStep("07-after-schedule-inspection-click");
+
+    //     try {
+    //         scheduleInspectionPage.waitForModal();
+    //         captureStep("08-schedule-audit-modal");
+    //         return;
+    //     } catch (Exception e) {
+    //         page.waitForTimeout(500);
+    //     }
+    // }
+
+    // throw new IllegalStateException("Schedule Audit modal never became visible");
+    // }
+
     private void openScheduleInspectionModalOnce() {
-        auditPage.openScheduleTab();
-        auditPage.waitForSchedulePageReady();
-        captureStep("06-schedule-tab");
-        auditPage.selectFirstBuildingFromTopBar();
-        captureStep("06b-schedule-building-selected");
-        auditPage.clickScheduleInspectionButton();
+
+    // ✅ Step 1: Clean previous state
+    ensureCleanState();
+
+    // ✅ Step 2: Navigate
+    auditPage.openScheduleTab();
+    auditPage.waitForSchedulePageReady();
+    page.waitForLoadState(LoadState.NETWORKIDLE);
+
+    captureStep("06-schedule-tab");
+
+    // ✅ Step 3: Select building
+    auditPage.selectFirstBuildingFromTopBar();
+    captureStep("06b-schedule-building-selected");
+
+    // ✅ Step 4: Retry opening modal
+    for (int attempt = 1; attempt <= 3; attempt++) {
+
+        clickScheduleInspectionButtonStable();
         captureStep("07-after-schedule-inspection-click");
-        scheduleInspectionPage.waitForModal();
-        captureStep("08-schedule-audit-modal");
+
+        try {
+            // 🔥 KEY FIX: Wait for modal ATTACHED first
+            Locator modal = page.locator(".ant-modal").last();
+
+            modal.waitFor(new Locator.WaitForOptions()
+                    .setState(WaitForSelectorState.ATTACHED)
+                    .setTimeout(5000));
+
+            // 🔥 Then wait until it becomes VISIBLE (not display:none)
+            modal.waitFor(new Locator.WaitForOptions()
+                    .setState(WaitForSelectorState.VISIBLE)
+                    .setTimeout(7000));
+
+            // Extra animation buffer
+            page.waitForTimeout(500);
+
+            captureStep("08-schedule-audit-modal");
+
+            return; // ✅ SUCCESS
+        } catch (Exception e) {
+            System.out.println("Retry opening modal attempt: " + attempt);
+            page.waitForTimeout(800);
+        }
     }
+
+    throw new IllegalStateException("Schedule Audit modal never became visible");
+}
+
+     // Clean state before opening modal
+    protected void ensureCleanState() {
+
+    Locator swalOk = page.locator(".swal2-container button:has-text('OK')");
+    if (swalOk.count() > 0 && swalOk.first().isVisible()) {
+        swalOk.click();
+        swalOk.waitFor(new Locator.WaitForOptions()
+                .setState(WaitForSelectorState.HIDDEN));
+    }
+
+    Locator modal = page.locator(".ant-modal:visible");
+    if (modal.count() > 0 && modal.first().isVisible()) {
+        page.keyboard().press("Escape");
+        page.waitForTimeout(300);
+    }
+    }
+
+    // Stable click
+    protected void clickScheduleInspectionButtonStable() {
+
+    Locator btn = page.getByRole(AriaRole.BUTTON,
+            new Page.GetByRoleOptions().setName("Schedule Inspection")).first();
+
+    btn.waitFor(new Locator.WaitForOptions()
+            .setState(WaitForSelectorState.VISIBLE));
+
+    btn.scrollIntoViewIfNeeded();
+    page.waitForTimeout(200);
+
+    btn.click(new Locator.ClickOptions().setForce(true));
+}
+
+
+    // private void openScheduleInspectionModalOnce() {
+    //     auditPage.openScheduleTab();
+    //     auditPage.waitForSchedulePageReady();
+    //     captureStep("06-schedule-tab");
+    //     auditPage.selectFirstBuildingFromTopBar();
+    //     captureStep("06b-schedule-building-selected");
+    //     auditPage.clickScheduleInspectionButton();
+    //     captureStep("07-after-schedule-inspection-click");
+    //     scheduleInspectionPage.waitForModal();
+    //     captureStep("08-schedule-audit-modal");
+    // }
 
     private void recoverSchedulePageAfterModalFailure(int attempt) {
         browserDiagnostics.add("RETRY :: Schedule Inspection modal open attempt " + attempt + " failed. Reloading schedule page.");

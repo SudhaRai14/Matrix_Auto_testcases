@@ -6,9 +6,14 @@ import com.microsoft.playwright.BrowserType;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.PlaywrightException;
+import com.microsoft.playwright.options.AriaRole;
+import com.microsoft.playwright.options.WaitForSelectorState;
+import com.microsoft.playwright.Locator;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import pages.LoginPage;
+import com.microsoft.playwright.Page.GetByRoleOptions;
+import com.microsoft.playwright.options.LoadState;
 
 public class BaseTest {
     protected static final String DEFAULT_URL = "https://www.smartclean.io/matrix/sso/#/login";
@@ -46,6 +51,7 @@ public class BaseTest {
         }
     }
 
+   
     private void navigateWithRetry(String url) {
         PlaywrightException lastException = null;
 

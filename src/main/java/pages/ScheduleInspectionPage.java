@@ -6,6 +6,7 @@ import com.microsoft.playwright.assertions.PlaywrightAssertions;
 import com.microsoft.playwright.options.AriaRole;
 import com.microsoft.playwright.options.LoadState;
 import com.microsoft.playwright.options.WaitForSelectorState;
+import models.FrequencyConfig;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.Month;
@@ -17,6 +18,7 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.logging.Logger;
+
 
 public class ScheduleInspectionPage 
 {
@@ -44,20 +46,20 @@ public class ScheduleInspectionPage
         this.page = page;
 
         this.modal = page.locator(
-                ".ant-modal-root [role='dialog']:visible, " +
-                        ".ant-modal-root .ant-modal.newSchedule:visible")
+                ".ant-modal-root [role='dialog']:visible:not(.ant-zoom-leave):not(.ant-zoom-leave-active), " +
+                        ".ant-modal-root .ant-modal.newSchedule:visible:not(.ant-zoom-leave):not(.ant-zoom-leave-active)")
                 .first();
 
-        this.modalTitle = page.locator(".ant-modal-root .ant-modal-title:visible")
+        this.modalTitle = page.locator(".ant-modal-root .ant-modal:not(.ant-zoom-leave):not(.ant-zoom-leave-active) .ant-modal-title:visible")
                 .filter(new Locator.FilterOptions().setHasText("Schedule Audit")).first();
 
         this.modalBody = page.locator(
-                ".ant-modal-root .ant-modal-body:visible:has-text('Template:'), " +
-                        ".ant-modal-root .ant-modal-content:visible:has-text('Template:'), " +
-                        ".ant-modal-root .ant-modal-content:visible:has-text('Buildings:'), " +
-                        ".ant-modal-root .ant-modal-content:visible:has-text('Zone Category:'), " +
-                        ".ant-modal-root .ant-modal-content:visible:has-text('StartTime'), " +
-                        ".ant-modal-root [role='dialog']:visible:has-text('Template:')").first();
+                ".ant-modal-root .ant-modal:not(.ant-zoom-leave):not(.ant-zoom-leave-active) .ant-modal-body:visible:has-text('Template:'), " +
+                        ".ant-modal-root .ant-modal:not(.ant-zoom-leave):not(.ant-zoom-leave-active) .ant-modal-content:visible:has-text('Template:'), " +
+                        ".ant-modal-root .ant-modal:not(.ant-zoom-leave):not(.ant-zoom-leave-active) .ant-modal-content:visible:has-text('Buildings:'), " +
+                        ".ant-modal-root .ant-modal:not(.ant-zoom-leave):not(.ant-zoom-leave-active) .ant-modal-content:visible:has-text('Zone Category:'), " +
+                        ".ant-modal-root .ant-modal:not(.ant-zoom-leave):not(.ant-zoom-leave-active) .ant-modal-content:visible:has-text('StartTime'), " +
+                        ".ant-modal-root [role='dialog']:visible:not(.ant-zoom-leave):not(.ant-zoom-leave-active):has-text('Template:')").first();
                         
         this.customRadio = modal.getByLabel("Custom", new Locator.GetByLabelOptions().setExact(true)).first()
                 .or(modal.getByText("Custom", new Locator.GetByTextOptions().setExact(true))).first();
@@ -105,12 +107,12 @@ public class ScheduleInspectionPage
     {
         Locator visibleModalWrap = page.locator(".ant-modal-root .ant-modal-wrap:visible").first();
         Locator visibleModalDialog = page.locator(
-                ".ant-modal-root .ant-modal.newSchedule:visible, " +
-                        ".ant-modal-root [role='dialog']:visible")
+                ".ant-modal-root .ant-modal.newSchedule:visible:not(.ant-zoom-leave):not(.ant-zoom-leave-active), " +
+                        ".ant-modal-root [role='dialog']:visible:not(.ant-zoom-leave):not(.ant-zoom-leave-active)")
                 .first();
         Locator attachedModalDialog = page.locator(
-                ".ant-modal-root .ant-modal.newSchedule, " +
-                        ".ant-modal-root [role='dialog']")
+                ".ant-modal-root .ant-modal.newSchedule:not(.ant-zoom-leave):not(.ant-zoom-leave-active), " +
+                        ".ant-modal-root [role='dialog']:not(.ant-zoom-leave):not(.ant-zoom-leave-active)")
                 .first();
 
         long start = System.currentTimeMillis();
@@ -201,13 +203,40 @@ public class ScheduleInspectionPage
     public String selectAnyTemplateWithRows() 
     {
         List<String> templateOptions = getVisibleDropdownOptions("Template");
+        Optional<String> selectedBuilding = trySelectAnyBuilding();
+
         for (String templateOption : templateOptions) {
-            selectTemplate(templateOption);
-            if (getZoneRowCount() > 0) {
-                return templateOption;
+            try {
+                selectTemplate(templateOption);
+                if (getZoneRowCount() > 0) {
+                    return templateOption;
+                }
+            } catch (RuntimeException ex) {
+                LOGGER.info(() -> "Skipping template that could not be selected: " + templateOption
+                        + ". Reason: " + ex.getMessage());
             }
         }
-        throw new IllegalStateException("Unable to find an available template that loads schedule rows.");
+
+        if (selectedBuilding.isEmpty()) {
+            selectedBuilding = trySelectAnyBuilding();
+        }
+
+        if (selectedBuilding.isPresent()) {
+            for (String templateOption : templateOptions) {
+                try {
+                    selectTemplate(templateOption);
+                    if (getZoneRowCount() > 0) {
+                        return templateOption;
+                    }
+                } catch (RuntimeException ex) {
+                    LOGGER.info(() -> "Skipping template after building selection: " + templateOption
+                            + ". Reason: " + ex.getMessage());
+                }
+            }
+        }
+
+        throw new IllegalStateException("Unable to find an available template that loads schedule rows. Tried templates: "
+                + templateOptions + selectedBuilding.map(building -> ", building=" + building).orElse(""));
     }
 
     public void selectBuilding(String buildingName) 
@@ -221,6 +250,16 @@ public class ScheduleInspectionPage
         String selectedBuilding = selectFirstDropdownOption(new String[]{"Buildings", "Building"});
         waitForLoadingToFinish();
         return selectedBuilding;
+    }
+
+    private Optional<String> trySelectAnyBuilding()
+    {
+        try {
+            return Optional.of(selectAnyBuilding());
+        } catch (RuntimeException ex) {
+            LOGGER.info(() -> "Building dropdown was not selectable while preparing template rows: " + ex.getMessage());
+            return Optional.empty();
+        }
     }
 
     public void selectZoneCategory(String zoneCategory) 
@@ -437,7 +476,39 @@ public class ScheduleInspectionPage
     clickPopupOk(popup);
 
     waitForLoadingToFinish();
-}
+    }
+
+    private void clickDatePickerOk() {
+
+    Locator okBtn = page.locator(
+            ".ant-picker-ok button, " +                 // Ant picker OK
+            ".ant-picker-footer button:has-text('OK'), " +
+            "button:has-text('OK'):visible"
+    ).last();
+
+    okBtn.waitFor(new Locator.WaitForOptions()
+            .setState(WaitForSelectorState.VISIBLE)
+            .setTimeout(5000));
+
+    okBtn.scrollIntoViewIfNeeded();
+
+    page.waitForTimeout(200); // allow animation
+
+    okBtn.click();
+
+     Locator activePicker = page.locator(
+            ".ant-picker-dropdown.ant-picker-dropdown-range:not(.ant-picker-dropdown-hidden)"
+    );
+
+    // 🔥 VERY IMPORTANT: wait for picker to close
+    activePicker.waitFor(new Locator.WaitForOptions()
+            .setState(WaitForSelectorState.HIDDEN)
+            .setTimeout(5000));
+    
+    // Optional stabilization (recommended)
+    page.waitForTimeout(300);
+    }
+
     public void selectDates(int rowIndex, String startDate, String endDate, String time)
     {
         LOGGER.info(() -> "Setting row dates/time for row index " + rowIndex
@@ -460,21 +531,19 @@ public class ScheduleInspectionPage
         Locator rangePicker = page.locator("main .ant-picker-range").first();
         rangePicker.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
 
-        Locator inputs = rangePicker.locator("input");
-        inputs.nth(0).click();
-        selectDateFromPicker(startDate);
-        inputs.nth(1).click();
-        selectDateFromPicker(endDate);
+        rangePicker.click();
+        selectDateFromPicker(startDate, false);
+        selectDateFromPicker(endDate, false);
+
+        clickDatePickerOk();
+
         waitForScheduleListToRefresh();
+        // page.waitForFunction(
+        // "() => !document.querySelector('.ant-picker-dropdown')"
+        // );
 
-          // Click OK on date picker
-        Locator okButton = page.locator(".ant-picker-ok button");
-
-        if (okButton.isVisible()) {
-            okButton.click();
-        }
-        System.out.println("Date filter applied: " + startDate + " → " + endDate);
-        // Wait for table refresh
+        System.out.println("Date filter applied: " + startDate + " -> " + endDate);
+        waitForScheduleListToRefresh();
         waitForLoadingToFinish();
     }
     
@@ -514,61 +583,85 @@ public class ScheduleInspectionPage
         return matches;
     }
 
-private int countScheduledEvents(String expectedAuditor,
-                                 LocalDate startDate,
-                                 LocalDate endDate) {
 
-    Locator rows = page.locator("table tbody tr");
+    public int waitForScheduledEvents(String zone, String auditor, List<String> expectedDates)
+    {
+        int expectedCount = expectedDates.size();
+        long start = System.currentTimeMillis();
+        int latestMatchCount = 0;
+        List<String> latestActualDates = List.of();
 
-    int count = 0;
-    int rowCount = rows.count();
+        while (System.currentTimeMillis() - start < DEFAULT_TIMEOUT_MS) {
+            latestActualDates = getScheduledAuditDates(zone, auditor);
+            latestMatchCount = countMatchingDates(latestActualDates, expectedDates);
+            if (latestMatchCount >= expectedCount) {
+                return latestMatchCount;
+            }
 
-    int auditorCol = getColumnIndex("Auditor");
-    int dateCol = getColumnIndex("Date");
-
-    for (int i = 0; i < rowCount; i++) {
-
-        Locator row = rows.nth(i);
-
-        String auditor = row.locator("td").nth(auditorCol)
-                .innerText().trim();
-
-        String dateText = row.locator("td").nth(dateCol)
-                .innerText().trim();
-
-        LocalDate rowDate = parseDate(dateText);
-
-        if (auditor.equalsIgnoreCase(expectedAuditor)
-                && !rowDate.isBefore(startDate)
-                && !rowDate.isAfter(endDate)) {
-
-            count++;
+            page.waitForTimeout(500);
+            waitForScheduleListToRefresh();
         }
+
+        throw new IllegalStateException("Expected " + expectedCount + " scheduled events for zone=" + zone
+                + ", auditor=" + auditor + ", expectedDates=" + expectedDates
+                + ", matched=" + latestMatchCount + ", actualDates=" + latestActualDates + ".");
     }
 
-    return count;
-}
+//     private int countScheduledEvents(String expectedAuditor,
+//                                  LocalDate startDate,
+//                                  LocalDate endDate) {
 
-    private LocalDate parseDate(String dateText) {
+//     Locator rows = page.locator("table tbody tr");
 
-    String text = dateText.trim();
+//     int count = 0;
+//     int rowCount = rows.count();
 
-    List<DateTimeFormatter> formats = List.of(
-        DateTimeFormatter.ofPattern("yyyy-MM-dd"),
-        DateTimeFormatter.ofPattern("dd/MM/yyyy"),
-        DateTimeFormatter.ofPattern("dd MMM yyyy"),
-        DateTimeFormatter.ofPattern("MMM d, yyyy"),
-        DateTimeFormatter.ofPattern("d MMM yyyy")
-    );
+//     int auditorCol = getColumnIndex("Auditor");
+//     int dateCol = getColumnIndex("Date");
 
-    for (DateTimeFormatter formatter : formats) {
-        try {
-            return LocalDate.parse(text, formatter);
-        } catch (Exception ignored) {}
-    }
+//     for (int i = 0; i < rowCount; i++) {
 
-    throw new IllegalArgumentException("Unsupported date format: " + text);
-}
+//         Locator row = rows.nth(i);
+
+//         String auditor = row.locator("td").nth(auditorCol)
+//                 .innerText().trim();
+
+//         String dateText = row.locator("td").nth(dateCol)
+//                 .innerText().trim();
+
+//         LocalDate rowDate = parseDate(dateText);
+
+//         if (auditor.equalsIgnoreCase(expectedAuditor)
+//                 && !rowDate.isBefore(startDate)
+//                 && !rowDate.isAfter(endDate)) {
+
+//             count++;
+//         }
+//     }
+
+//     return count;
+// }
+
+//     private LocalDate parseDate(String dateText) {
+
+//     String text = dateText.trim();
+
+//     List<DateTimeFormatter> formats = List.of(
+//         DateTimeFormatter.ofPattern("yyyy-MM-dd"),
+//         DateTimeFormatter.ofPattern("dd/MM/yyyy"),
+//         DateTimeFormatter.ofPattern("dd MMM yyyy"),
+//         DateTimeFormatter.ofPattern("MMM d, yyyy"),
+//         DateTimeFormatter.ofPattern("d MMM yyyy")
+//     );
+
+//     for (DateTimeFormatter formatter : formats) {
+//         try {
+//             return LocalDate.parse(text, formatter);
+//         } catch (Exception ignored) {}
+//     }
+
+//     throw new IllegalArgumentException("Unsupported date format: " + text);
+// }
     public void waitForScheduledEvents(String zone, String auditor, int expectedCount)
     {
         long start = System.currentTimeMillis();
@@ -1036,10 +1129,11 @@ private int countScheduledEvents(String expectedAuditor,
     private List<String> getVisibleDropdownOptions(String fieldLabel) {
         Locator container = findFieldContainer(fieldLabel);
         Locator trigger = resolveDropdownTrigger(container);
-        trigger.click();
+        clickDropdownTrigger(trigger);
+        Locator visibleDropdown = waitForVisibleSelectDropdown();
 
         List<String> options = new ArrayList<>();
-        Locator optionLocators = page.locator(".ant-select-item-option, [role='option']");
+        Locator optionLocators = visibleDropdown.locator(".ant-select-item-option, [role='option']");
         long start = System.currentTimeMillis();
 
         while (System.currentTimeMillis() - start < DEFAULT_TIMEOUT_MS) {
@@ -1088,11 +1182,12 @@ private int countScheduledEvents(String expectedAuditor,
         }
 
         Locator trigger = resolveDropdownTrigger(container);
-        trigger.click();
+        clickDropdownTrigger(trigger);
+        Locator visibleDropdown = waitForVisibleSelectDropdown();
 
-        Locator option = findFirstVisibleDropdownOption();
+        Locator option = findFirstVisibleDropdownOption(visibleDropdown);
         String optionText = option.innerText().trim();
-        option.click();
+        option.click(new Locator.ClickOptions().setForce(true));
         return optionText;
     }
 
@@ -1117,24 +1212,39 @@ private int countScheduledEvents(String expectedAuditor,
         }
 
         Locator trigger = resolveDropdownTrigger(container);
-        trigger.click();
+        clickDropdownTrigger(trigger);
+        waitForVisibleSelectDropdown();
         Locator option = findVisibleDropdownOptionByText(optionText);
-        option.click();
+        option.click(new Locator.ClickOptions().setForce(true));
     }
 
     private Locator resolveDropdownTrigger(Locator container) {
-        Locator selector = container.locator(
+        Locator selectors = container.locator(
                 ".ant-select-selector, " +
-                        ".ant-select-selection-overflow, " +
-                        ".ant-select-selection-search, " +
-                        "nz-select .ant-select-selector")
-                .first();
+                        "nz-select .ant-select-selector, " +
+                        "[role='combobox']:visible");
 
-        if (selector.count() > 0) {
-            return selector;
+        long start = System.currentTimeMillis();
+        while (System.currentTimeMillis() - start < DEFAULT_TIMEOUT_MS) {
+            int count = selectors.count();
+            for (int index = 0; index < count; index++) {
+                Locator selector = selectors.nth(index);
+                if (selector.isVisible()) {
+                    return selector;
+                }
+            }
+            page.waitForTimeout(250);
         }
 
-        return container.locator("nz-select, .ant-select, [role='combobox']").first();
+        throw new IllegalStateException("Unable to locate visible dropdown trigger in field: " + container.innerText());
+    }
+
+    private void clickDropdownTrigger(Locator trigger) {
+        try {
+            trigger.click(new Locator.ClickOptions().setForce(true).setTimeout(5000));
+        } catch (RuntimeException ignored) {
+            trigger.evaluate("element => element.click()");
+        }
     }
 
     private boolean trySelectZoneCategory(String zoneCategory) {
@@ -1166,8 +1276,16 @@ private int countScheduledEvents(String expectedAuditor,
         return false;
     }
 
-    private Locator findFirstVisibleDropdownOption() {
-        Locator options = page.locator(".ant-select-item-option, [role='option']");
+    private Locator waitForVisibleSelectDropdown() {
+        Locator visibleDropdown = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)").last();
+        visibleDropdown.waitFor(new Locator.WaitForOptions()
+                .setState(WaitForSelectorState.VISIBLE)
+                .setTimeout(DEFAULT_TIMEOUT_MS));
+        return visibleDropdown;
+    }
+
+    private Locator findFirstVisibleDropdownOption(Locator visibleDropdown) {
+        Locator options = visibleDropdown.locator(".ant-select-item-option, [role='option']");
         long start = System.currentTimeMillis();
 
         while (System.currentTimeMillis() - start < DEFAULT_TIMEOUT_MS) {
@@ -1399,6 +1517,10 @@ private int countScheduledEvents(String expectedAuditor,
     }
 
     private void selectDateFromPicker(String value) {
+        selectDateFromPicker(value, true);
+    }
+
+    private void selectDateFromPicker(String value, boolean clickOk) {
         Locator visibleDropdown = page.locator(".ant-picker-dropdown:not(.ant-picker-dropdown-hidden)").last();
         visibleDropdown.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
 
@@ -1411,7 +1533,9 @@ private int countScheduledEvents(String expectedAuditor,
         while (System.currentTimeMillis() - start < DEFAULT_TIMEOUT_MS) {
             if (targetCell.count() > 0 && targetCell.first().isVisible()) {
                 targetCell.first().click();
-                clickPickerOkIfVisible(visibleDropdown);
+                if (clickOk) {
+                    clickPickerOkIfVisible(visibleDropdown);
+                }
                 return;
             }
 
@@ -1490,6 +1614,30 @@ private int countScheduledEvents(String expectedAuditor,
         }
     }
 
+    private void clickVisiblePickerOkIfPresent() {
+        Locator okButtons = page.locator(
+                ".ant-picker-dropdown:not(.ant-picker-dropdown-hidden) .ant-picker-ok button, " +
+                        ".ant-picker-dropdown:not(.ant-picker-dropdown-hidden) .ant-picker-ok .ant-btn");
+
+        long start = System.currentTimeMillis();
+        while (System.currentTimeMillis() - start < 3000) {
+            int count = okButtons.count();
+            for (int index = count - 1; index >= 0; index--) {
+                Locator okButton = okButtons.nth(index);
+                if (okButton.isVisible()) {
+                    okButton.click(new Locator.ClickOptions().setForce(true));
+                    return;
+                }
+            }
+            page.waitForTimeout(200);
+        }
+
+        Locator visibleDropdown = page.locator(".ant-picker-dropdown:not(.ant-picker-dropdown-hidden)").last();
+        if (visibleDropdown.count() > 0 && visibleDropdown.isVisible()) {
+            page.keyboard().press("Escape");
+        }
+    }
+
     private LocalTime parseUiTime(String value) {
         try {
             return LocalTime.parse(value, UI_TIME_FORMAT);
@@ -1548,16 +1696,48 @@ private int countScheduledEvents(String expectedAuditor,
         List<DateTimeFormatter> formatters = List.of(
                 DateTimeFormatter.ISO_LOCAL_DATE,
                 DateTimeFormatter.ofPattern("yyyy/MM/dd", Locale.ENGLISH),
-                DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ENGLISH));
+                DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ENGLISH),
+                DateTimeFormatter.ofPattern("MM/dd/yyyy", Locale.ENGLISH),
+                DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.ENGLISH),
+                DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH),
+                DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ENGLISH),
+                DateTimeFormatter.ofPattern("MMM dd, yyyy", Locale.ENGLISH));
 
-        for (DateTimeFormatter formatter : formatters) {
-            try {
-                return Optional.of(LocalDate.parse(value.trim(), formatter));
-            } catch (DateTimeParseException ignored) {
-                // Try the next supported UI format.
+        for (String candidate : dateCandidates(value)) {
+            for (DateTimeFormatter formatter : formatters) {
+                try {
+                    return Optional.of(LocalDate.parse(candidate, formatter));
+                } catch (DateTimeParseException ignored) {
+                    // Try the next supported UI format.
+                }
             }
         }
         return Optional.empty();
+    }
+
+    private List<String> dateCandidates(String value) {
+        String trimmed = value.trim().replaceAll("\\s+", " ");
+        List<String> candidates = new ArrayList<>();
+        candidates.add(trimmed);
+
+        List<Pattern> patterns = List.of(
+                Pattern.compile("\\d{4}-\\d{2}-\\d{2}"),
+                Pattern.compile("\\d{4}/\\d{2}/\\d{2}"),
+                Pattern.compile("\\d{1,2}/\\d{1,2}/\\d{4}"),
+                Pattern.compile("\\d{1,2}\\s+[A-Za-z]{3,}\\s+\\d{4}"),
+                Pattern.compile("[A-Za-z]{3,}\\s+\\d{1,2},\\s+\\d{4}"));
+
+        for (Pattern pattern : patterns) {
+            java.util.regex.Matcher matcher = pattern.matcher(trimmed);
+            while (matcher.find()) {
+                String candidate = matcher.group();
+                if (!candidates.contains(candidate)) {
+                    candidates.add(candidate);
+                }
+            }
+        }
+
+        return candidates;
     }
 
     private Optional<LocalTime> parseFlexibleTime(String value) {
@@ -1575,14 +1755,11 @@ private int countScheduledEvents(String expectedAuditor,
     private boolean waitForSelectedComboboxValue(Locator selectedValue, String expectedValue, double timeoutMs) {
         long start = System.currentTimeMillis();
         while (System.currentTimeMillis() - start < timeoutMs) {
-            try {
-                if (selectedValue.count() > 0
-                        && selectedValue.isVisible()
-                        && selectedValue.innerText().toLowerCase().contains(expectedValue.toLowerCase())) {
+            if (selectedValue.count() > 0) {
+                String text = selectedValue.innerText().trim();
+                if (text.toLowerCase(Locale.ENGLISH).contains(expectedValue.toLowerCase(Locale.ENGLISH))) {
                     return true;
                 }
-            } catch (RuntimeException ignored) {
-                // Allow the control time to settle after selection.
             }
             page.waitForTimeout(250);
         }
@@ -1661,12 +1838,71 @@ private int countScheduledEvents(String expectedAuditor,
     }
 
     private Locator findFieldContainer(String label) {
-        Locator container = modal.locator("xpath=.//*[normalize-space()='" + label + "']/ancestor::*[self::div or self::nz-form-item][1]").first();
-        if (container.count() == 0) {
-            container = modal.locator("xpath=.//*[contains(normalize-space(), '" + label + "')]/ancestor::*[self::div or self::nz-form-item][1]").first();
+        Locator root = modalBody.count() > 0 && modalBody.isVisible() ? modalBody : modal;
+        String normalizedLabel = label.endsWith(":") ? label.substring(0, label.length() - 1) : label;
+
+        for (String exactLabel : new String[]{label, normalizedLabel + ":", normalizedLabel}) {
+            Locator exactContainers = root.locator("xpath=.//*[normalize-space()='" + exactLabel + "']/ancestor::*[self::div or self::nz-form-item][1]");
+            Optional<Locator> visibleDropdownContainer = firstVisibleWithDropdown(exactContainers);
+            if (visibleDropdownContainer.isPresent()) {
+                return visibleDropdownContainer.get();
+            }
         }
+
+        Locator partialContainers = root.locator("xpath=.//*[contains(normalize-space(), '" + normalizedLabel + "')]/ancestor::*[self::div or self::nz-form-item][1]");
+        Optional<Locator> visiblePartialContainer = firstVisibleWithDropdown(partialContainers);
+        if (visiblePartialContainer.isPresent()) {
+            return visiblePartialContainer.get();
+        }
+
+        visiblePartialContainer = firstVisible(partialContainers);
+        if (visiblePartialContainer.isPresent()) {
+            return visiblePartialContainer.get();
+        }
+
+        Locator container = partialContainers.first();
         container.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
         return container;
+    }
+
+    private Optional<Locator> firstVisibleWithDropdown(Locator locators) {
+        Optional<Locator> visibleLocator = firstVisible(locators);
+        while (visibleLocator.isPresent()) {
+            Locator locator = visibleLocator.get();
+            if (locator.locator(".ant-select-selector:visible, nz-select .ant-select-selector:visible, [role='combobox']:visible").count() > 0) {
+                return visibleLocator;
+            }
+
+            int count = locators.count();
+            for (int index = 0; index < count; index++) {
+                Locator candidate = locators.nth(index);
+                if (candidate.isVisible()
+                        && candidate.locator(".ant-select-selector:visible, nz-select .ant-select-selector:visible, [role='combobox']:visible").count() > 0) {
+                    return Optional.of(candidate);
+                }
+            }
+            return Optional.empty();
+        }
+        return Optional.empty();
+    }
+
+    private Optional<Locator> firstVisible(Locator locators) {
+        if (locators.count() == 0) {
+            return Optional.empty();
+        }
+
+        long start = System.currentTimeMillis();
+        while (System.currentTimeMillis() - start < DEFAULT_TIMEOUT_MS) {
+            int count = locators.count();
+            for (int index = 0; index < count; index++) {
+                Locator locator = locators.nth(index);
+                if (locator.isVisible()) {
+                    return Optional.of(locator);
+                }
+            }
+            page.waitForTimeout(250);
+        }
+        return Optional.empty();
     }
 
     // private int getColumnIndex(String columnName) {
@@ -1783,14 +2019,17 @@ private int countScheduledEvents(String expectedAuditor,
     //     };
     // }
 
-    private void waitForScheduleListToRefresh() {
-        page.waitForLoadState(LoadState.DOMCONTENTLOADED);
-        Locator skeleton = page.locator("main .ant-skeleton:visible, main .ant-spin-spinning:visible");
-        if (skeleton.count() > 0) {
-            skeleton.first().waitFor(new Locator.WaitForOptions()
-                    .setState(WaitForSelectorState.HIDDEN)
-                    .setTimeout(DEFAULT_TIMEOUT_MS));
-        }
+    public void waitForScheduleListToRefresh() 
+    {
+    Locator rows = page.locator("table tbody tr");
+
+    // Wait for at least one row to appear
+    rows.first().waitFor(new Locator.WaitForOptions()
+            .setState(WaitForSelectorState.VISIBLE)
+            .setTimeout(10000));
+
+    // Optional stabilization
+    page.waitForTimeout(500);
     }
 
     private Locator visibleScheduleRows(String zone, String auditor) {
@@ -1798,6 +2037,16 @@ private int countScheduledEvents(String expectedAuditor,
         return page.locator("main tbody tr")
                 .filter(new Locator.FilterOptions().setHasText(zone))
                 .filter(new Locator.FilterOptions().setHasText(auditor));
+    }
+
+    private int countMatchingDates(List<String> actualDates, List<String> expectedDates) {
+        int matches = 0;
+        for (String expectedDate : expectedDates) {
+            if (actualDates.stream().anyMatch(actualDate -> dateValuesMatch(expectedDate, actualDate))) {
+                matches++;
+            }
+        }
+        return matches;
     }
 
     private int getSchedulePageColumnIndex(String columnName) {
@@ -1928,7 +2177,7 @@ private int countScheduledEvents(String expectedAuditor,
         DATES,
         DAYS
     }
-
+    
     public enum RecurrenceMonth {
         JANUARY("January", Month.JANUARY),
         FEBRUARY("February", Month.FEBRUARY),
@@ -1955,72 +2204,34 @@ private int countScheduledEvents(String expectedAuditor,
             return month;
         }
     }
-
-    public static class FrequencyConfig {
-
-    public enum Type {
-        DAILY,
-        WEEKLY,
-        MONTHLY
-    }
-
-    private Type type;
-    private int every;
-    private List<String> daysOfWeek;
-    private List<Integer> dates;
-    private String monthlyMode;          // "DATES" or "DAYS"
-    private List<Integer> monthlyDates;  // e.g., [5, 10]
-    private String monthlyWeekOrder;     // e.g., "First", "Second"
-    private String monthlyDayName;       // e.g., "Monday"
-
-
-    public static FrequencyConfig daily(int every) {
-        FrequencyConfig config = new FrequencyConfig();
-        config.type = Type.DAILY;
-        config.every = every;
-        return config;
-    }
-
-    public static FrequencyConfig weekly(int every, List<String> days) {
-        FrequencyConfig config = new FrequencyConfig();
-        config.type = Type.WEEKLY;
-        config.every = every;
-        config.daysOfWeek = days;
-        return config;
-    }
-
-    public static FrequencyConfig monthlyOnDates(int every, List<Integer> dates) {
-        FrequencyConfig config = new FrequencyConfig();
-        config.type = Type.MONTHLY;
-        config.every = every;
-        config.dates = dates;
-        return config;
-    }
-
-
-    public String getMonthlyMode() { return monthlyMode; }
-    public List<Integer> getMonthlyDates() { return monthlyDates; }
-    public String getMonthlyWeekOrder() { return monthlyWeekOrder; }
-    public String getMonthlyDayName() { return monthlyDayName; }
     
+    // 1. Wait for modal
+public void waitForModalVisible() {
+    Locator modal = page.locator(".ant-modal:visible").last();
 
-    // ✅ REQUIRED GETTERS
+    modal.waitFor(new Locator.WaitForOptions()
+            .setState(WaitForSelectorState.VISIBLE)
+            .setTimeout(15000));
 
-    public Type getType() {
-        return type;
+    page.waitForTimeout(400);
+}
+
+// 2. Handle success popup
+public void handleSuccessPopup() {
+    Locator ok = page.locator(".swal2-container button:has-text('OK')");
+    if (ok.isVisible()) {
+        ok.click();
+        ok.waitFor(new Locator.WaitForOptions()
+                .setState(WaitForSelectorState.HIDDEN));
     }
+}
 
-    public int getEvery() {
-        return every;
-    }
-
-    public List<String> getDaysOfWeek() {
-        return daysOfWeek;
-    }
-
-    public List<Integer> getDates() {
-        return dates;
-    }
+// 3. Wait for schedule grid
+public void waitForScheduleGrid() {
+    Locator rows = page.locator("table tbody tr");
+    rows.first().waitFor(new Locator.WaitForOptions()
+            .setState(WaitForSelectorState.VISIBLE));
+    page.waitForTimeout(800);
 }
 }
 
