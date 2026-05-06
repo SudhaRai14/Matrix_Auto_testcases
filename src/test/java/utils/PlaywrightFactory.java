@@ -15,6 +15,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
@@ -103,6 +104,10 @@ public final class PlaywrightFactory {
         BrowserType.LaunchOptions launchOptions = new BrowserType.LaunchOptions()
                 .setHeadless(headless);
 
+        if (!headless) {
+            launchOptions.setArgs(List.of("--start-maximized"));
+        }
+
         Path chromiumExecutable = resolveChromiumExecutable(headless);
         if (chromiumExecutable != null) {
             launchOptions.setExecutablePath(chromiumExecutable);
@@ -190,12 +195,12 @@ public final class PlaywrightFactory {
     }
 
     public static BrowserContext createContext(Browser browser) {
-        return browser.newContext(new Browser.NewContextOptions().setViewportSize(1600, 900));
+        return browser.newContext(new Browser.NewContextOptions().setViewportSize(1920, 1080));
     }
 
     public static BrowserContext createContext(Browser browser, Path storageStatePath) {
         Browser.NewContextOptions options = new Browser.NewContextOptions()
-                .setViewportSize(1600, 900);
+                .setViewportSize(1920, 1080);
 
         if (storageStatePath != null && Files.exists(storageStatePath)) {
             options.setStorageStatePath(storageStatePath);

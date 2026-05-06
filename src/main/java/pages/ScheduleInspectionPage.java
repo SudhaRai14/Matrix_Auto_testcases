@@ -13,9 +13,11 @@ import java.time.Month;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.logging.Logger;
 
@@ -546,6 +548,19 @@ public class ScheduleInspectionPage
         waitForScheduleListToRefresh();
         waitForLoadingToFinish();
     }
+
+    public void searchScheduleList(String query)
+    {
+        Locator searchInput = page.locator("main input[type='search'][placeholder='Search ...']").first();
+        if (searchInput.count() == 0) {
+            return;
+        }
+
+        searchInput.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+        searchInput.fill(query);
+        waitForScheduleListToRefresh();
+        waitForLoadingToFinish();
+    }
     
 
     public List<String> getScheduledAuditDates(String zone, String auditor)
@@ -592,7 +607,7 @@ public class ScheduleInspectionPage
         List<String> latestActualDates = List.of();
 
         while (System.currentTimeMillis() - start < DEFAULT_TIMEOUT_MS) {
-            latestActualDates = getScheduledAuditDates(zone, auditor);
+            latestActualDates = getScheduledAuditDatesAcrossPages(zone, auditor, expectedDates, expectedCount);
             latestMatchCount = countMatchingDates(latestActualDates, expectedDates);
             if (latestMatchCount >= expectedCount) {
                 return latestMatchCount;
@@ -605,6 +620,165 @@ public class ScheduleInspectionPage
         throw new IllegalStateException("Expected " + expectedCount + " scheduled events for zone=" + zone
                 + ", auditor=" + auditor + ", expectedDates=" + expectedDates
                 + ", matched=" + latestMatchCount + ", actualDates=" + latestActualDates + ".");
+    }
+
+    public ScheduledAuditRecord deleteScheduledAudit(String template,
+                                                    String building,
+                                                    String level,
+                                                    String zone,
+                                                    String auditDate,
+                                                    String auditor)
+    {
+        ScheduledAuditRecord record = findScheduledAuditAcrossPages(template, building, level, zone, auditDate, auditor)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Unable to find scheduled audit for template=" + template
+                                + ", building=" + building
+                                + ", level=" + level
+                                + ", zone=" + zone
+                                + ", auditDate=" + auditDate
+                                + ", auditor=" + auditor + "."));
+
+        clickScheduledAuditActions(template, building, level, zone, record.auditDate(), auditor);
+        clickDeleteAuditMenuItem();
+        waitForDeleteConfirmationModal();
+        clickConfirmDelete();
+
+        String feedback = getToastMessageIfPresent(DEFAULT_TIMEOUT_MS);
+        closeSuccessPopupIfPresent();
+        waitForScheduleListToRefresh();
+        waitForLoadingToFinish();
+
+        return new ScheduledAuditRecord(
+                record.template(),
+                record.building(),
+                record.level(),
+                record.zone(),
+                record.auditor(),
+                record.auditDate(),
+                feedback);
+    }
+
+    public boolean hasScheduledAuditAcrossPages(String template,
+                                                String building,
+                                                String level,
+                                                String zone,
+                                                String auditDate,
+                                                String auditor)
+    {
+        return findScheduledAuditAcrossPages(template, building, level, zone, auditDate, auditor).isPresent();
+    }
+
+    private Optional<ScheduledAuditRecord> findScheduledAuditAcrossPages(String template,
+                                                                         String building,
+                                                                         String level,
+                                                                         String zone,
+                                                                         String auditDate,
+                                                                         String auditor)
+    {
+        goToFirstSchedulePage();
+        Set<String> visitedPages = new LinkedHashSet<>();
+
+        while (true) {
+            waitForScheduleListToRefresh();
+            String pageSignature = currentSchedulePageSignature();
+            if (!visitedPages.add(pageSignature)) {
+                return Optional.empty();
+            }
+
+            Optional<ScheduledAuditRecord> record = findScheduledAuditOnCurrentPage(
+                    template,
+                    building,
+                    level,
+                    zone,
+                    auditDate,
+                    auditor);
+            if (record.isPresent()) {
+                return record;
+            }
+
+            if (!goToNextSchedulePage()) {
+                return Optional.empty();
+            }
+        }
+    }
+
+    private Optional<ScheduledAuditRecord> findScheduledAuditOnCurrentPage(String template,
+                                                                          String building,
+                                                                          String level,
+                                                                          String zone,
+                                                                          String auditDate,
+                                                                          String auditor)
+    {
+        int templateColumnIndex = getSchedulePageColumnIndex("Template");
+        int buildingColumnIndex = getSchedulePageColumnIndex("Building");
+        int levelColumnIndex = getSchedulePageColumnIndex("Level");
+        int zoneColumnIndex = getSchedulePageColumnIndex("Zone");
+        int auditorColumnIndex = getSchedulePageColumnIndex("Assigned To");
+        int auditDateColumnIndex = getSchedulePageColumnIndex("Audit Date");
+        Locator rows = page.locator("main tbody tr:not(.ant-table-placeholder)");
+        int rowCount = rows.count();
+
+        for (int index = 0; index < rowCount; index++) {
+            Locator row = rows.nth(index);
+            if (!row.isVisible()) {
+                continue;
+            }
+
+            String actualTemplate = cellText(row, templateColumnIndex);
+            String actualBuilding = cellText(row, buildingColumnIndex);
+            String actualLevel = cellText(row, levelColumnIndex);
+            String actualZone = cellText(row, zoneColumnIndex);
+            String actualAuditor = cellText(row, auditorColumnIndex);
+            String actualAuditDate = cellText(row, auditDateColumnIndex);
+
+            if (actualTemplate.equalsIgnoreCase(template)
+                    && actualBuilding.equalsIgnoreCase(building)
+                    && actualLevel.equalsIgnoreCase(level)
+                    && actualZone.equalsIgnoreCase(zone)
+                    && dateValuesMatch(auditDate, actualAuditDate)
+                    && actualAuditor.equalsIgnoreCase(auditor)) {
+                return Optional.of(new ScheduledAuditRecord(
+                        actualTemplate,
+                        actualBuilding,
+                        actualLevel,
+                        actualZone,
+                        actualAuditor,
+                        actualAuditDate,
+                        ""));
+            }
+        }
+
+        return Optional.empty();
+    }
+
+    private List<String> getScheduledAuditDatesAcrossPages(String zone,
+                                                           String auditor,
+                                                           List<String> expectedDates,
+                                                           int expectedCount)
+    {
+        goToFirstSchedulePage();
+
+        List<String> dates = new ArrayList<>();
+        Set<String> visitedPages = new LinkedHashSet<>();
+
+        while (true) {
+            waitForScheduleListToRefresh();
+            String pageSignature = currentSchedulePageSignature();
+            if (!visitedPages.add(pageSignature)) {
+                break;
+            }
+
+            dates.addAll(getScheduledAuditDates(zone, auditor));
+            if (countMatchingDates(dates, expectedDates) >= expectedCount) {
+                break;
+            }
+
+            if (!goToNextSchedulePage()) {
+                break;
+            }
+        }
+
+        return dates;
     }
 
 //     private int countScheduledEvents(String expectedAuditor,
@@ -2039,6 +2213,210 @@ public class ScheduleInspectionPage
                 .filter(new Locator.FilterOptions().setHasText(auditor));
     }
 
+    private void clickScheduledAuditActions(String template,
+                                            String building,
+                                            String level,
+                                            String zone,
+                                            String auditDate,
+                                            String auditor)
+    {
+        goToFirstSchedulePage();
+        Set<String> visitedPages = new LinkedHashSet<>();
+
+        while (true) {
+            waitForScheduleListToRefresh();
+            String pageSignature = currentSchedulePageSignature();
+            if (!visitedPages.add(pageSignature)) {
+                break;
+            }
+
+            Optional<Locator> row = findScheduledAuditRowOnCurrentPage(
+                    template,
+                    building,
+                    level,
+                    zone,
+                    auditDate,
+                    auditor);
+            if (row.isPresent()) {
+                int actionsColumnIndex = getSchedulePageColumnIndex("Actions");
+                Locator actionsCell = row.get().locator("td").nth(actionsColumnIndex);
+                Locator menuButton = actionsCell.locator(
+                        ".ant-dropdown-trigger:visible, [aria-label='ellipsis']:visible, button:visible")
+                        .first();
+                menuButton.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+                menuButton.click(new Locator.ClickOptions().setForce(true));
+                waitForDeleteAuditMenu();
+                return;
+            }
+
+            if (!goToNextSchedulePage()) {
+                break;
+            }
+        }
+
+        throw new IllegalStateException("Unable to find action menu for scheduled audit template=" + template
+                + ", building=" + building
+                + ", level=" + level
+                + ", zone=" + zone
+                + ", auditDate=" + auditDate
+                + ", auditor=" + auditor + ".");
+    }
+
+    private Optional<Locator> findScheduledAuditRowOnCurrentPage(String template,
+                                                                String building,
+                                                                String level,
+                                                                String zone,
+                                                                String auditDate,
+                                                                String auditor)
+    {
+        int templateColumnIndex = getSchedulePageColumnIndex("Template");
+        int buildingColumnIndex = getSchedulePageColumnIndex("Building");
+        int levelColumnIndex = getSchedulePageColumnIndex("Level");
+        int zoneColumnIndex = getSchedulePageColumnIndex("Zone");
+        int auditorColumnIndex = getSchedulePageColumnIndex("Assigned To");
+        int auditDateColumnIndex = getSchedulePageColumnIndex("Audit Date");
+        Locator rows = page.locator("main tbody tr:not(.ant-table-placeholder)");
+        int rowCount = rows.count();
+
+        for (int index = 0; index < rowCount; index++) {
+            Locator row = rows.nth(index);
+            if (!row.isVisible()) {
+                continue;
+            }
+
+            if (cellText(row, templateColumnIndex).equalsIgnoreCase(template)
+                    && cellText(row, buildingColumnIndex).equalsIgnoreCase(building)
+                    && cellText(row, levelColumnIndex).equalsIgnoreCase(level)
+                    && cellText(row, zoneColumnIndex).equalsIgnoreCase(zone)
+                    && dateValuesMatch(auditDate, cellText(row, auditDateColumnIndex))
+                    && cellText(row, auditorColumnIndex).equalsIgnoreCase(auditor)) {
+                return Optional.of(row);
+            }
+        }
+
+        return Optional.empty();
+    }
+
+    private void clickDeleteAuditMenuItem()
+    {
+        Locator deleteAudit = visibleDeleteAuditMenuItem();
+        deleteAudit.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+        deleteAudit.click(new Locator.ClickOptions().setForce(true));
+    }
+
+    private void waitForDeleteConfirmationModal()
+    {
+        visibleDeleteConfirmationButton().waitFor(new Locator.WaitForOptions()
+                .setState(WaitForSelectorState.VISIBLE)
+                .setTimeout(DEFAULT_TIMEOUT_MS));
+    }
+
+    private void clickConfirmDelete()
+    {
+        clearFeedbackSnapshot();
+        Locator deleteButton = visibleDeleteConfirmationButton();
+        deleteButton.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+        deleteButton.click(new Locator.ClickOptions().setForce(true));
+        waitForLoadingToFinish();
+    }
+
+    private void waitForDeleteAuditMenu()
+    {
+        visibleDeleteAuditMenuItem().waitFor(new Locator.WaitForOptions()
+                .setState(WaitForSelectorState.VISIBLE)
+                .setTimeout(DEFAULT_TIMEOUT_MS));
+    }
+
+    private Locator visibleDeleteAuditMenuItem()
+    {
+        return page.locator(
+                ".ant-dropdown:not(.ant-dropdown-hidden):visible .ant-dropdown-menu-title-content:text-is('Delete Audit'), " +
+                        ".ant-dropdown-menu:visible .ant-dropdown-menu-title-content:text-is('Delete Audit'), " +
+                        ".ant-dropdown:visible .ant-dropdown-menu-item:has-text('Delete Audit'), " +
+                        "[role='menu']:visible :text-is('Delete Audit')")
+                .first();
+    }
+
+    private Locator visibleDeleteConfirmationButton()
+    {
+        return page.locator(
+                ".ant-modal:visible button:has-text('Delete'), " +
+                        ".ant-popover:visible button:has-text('Delete'), " +
+                        ".ant-popconfirm:visible button:has-text('Delete'), " +
+                        ".swal2-container .swal2-confirm:visible, " +
+                        ".swal-overlay--show-modal button:visible:has-text('Delete'), " +
+                        "[role='dialog']:visible button:has-text('Delete')")
+                .last();
+    }
+
+    private String cellText(Locator row, int columnIndex)
+    {
+        Locator cells = row.locator("td");
+        if (cells.count() <= columnIndex) {
+            return "";
+        }
+        return cells.nth(columnIndex).innerText().trim();
+    }
+
+    private void goToFirstSchedulePage()
+    {
+        Locator previousButton = schedulePaginationButton(".ant-pagination-prev");
+        int guard = 0;
+        while (previousButton.count() > 0 && isPaginationButtonEnabled(previousButton) && guard++ < 100) {
+            previousButton.click();
+            waitForScheduleListToRefresh();
+            waitForLoadingToFinish();
+        }
+    }
+
+    private boolean goToNextSchedulePage()
+    {
+        Locator nextButton = schedulePaginationButton(".ant-pagination-next");
+        if (nextButton.count() == 0 || !isPaginationButtonEnabled(nextButton)) {
+            return false;
+        }
+
+        nextButton.click();
+        waitForScheduleListToRefresh();
+        waitForLoadingToFinish();
+        return true;
+    }
+
+    private Locator schedulePaginationButton(String selector)
+    {
+        return page.locator("main .ant-pagination " + selector + ":visible").first();
+    }
+
+    private boolean isPaginationButtonEnabled(Locator button)
+    {
+        if (button.count() == 0 || !button.isVisible()) {
+            return false;
+        }
+
+        String className = button.getAttribute("class");
+        String ariaDisabled = button.getAttribute("aria-disabled");
+        return (className == null || !className.contains("ant-pagination-disabled"))
+                && !"true".equalsIgnoreCase(ariaDisabled);
+    }
+
+    private String currentSchedulePageSignature()
+    {
+        String activePage = "";
+        Locator activePageItem = page.locator("main .ant-pagination .ant-pagination-item-active").first();
+        if (activePageItem.count() > 0) {
+            activePage = activePageItem.innerText().trim();
+        }
+
+        Locator rows = page.locator("main tbody tr");
+        List<String> rowTexts = new ArrayList<>();
+        int rowCount = rows.count();
+        for (int index = 0; index < rowCount; index++) {
+            rowTexts.add(rows.nth(index).innerText().trim());
+        }
+
+        return activePage + "|" + String.join("|", rowTexts);
+    }
+
     private int countMatchingDates(List<String> actualDates, List<String> expectedDates) {
         int matches = 0;
         for (String expectedDate : expectedDates) {
@@ -2176,6 +2554,15 @@ public class ScheduleInspectionPage
     public enum MonthlyMode {
         DATES,
         DAYS
+    }
+
+    public record ScheduledAuditRecord(String template,
+                                       String building,
+                                       String level,
+                                       String zone,
+                                       String auditor,
+                                       String auditDate,
+                                       String feedback) {
     }
     
     public enum RecurrenceMonth {

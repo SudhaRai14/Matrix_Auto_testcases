@@ -303,7 +303,6 @@ public class ScheduleInspectionTest extends BaseTest {
     );
 }
 
-
   /* Matrix allows duplicate schedule submissions as of 6/2024, but the system should provide deterministic feedback if a user attempts to submit the same schedule twice. This test verifies that behavior. If duplicate submissions become disallowed in the future, this test should be updated to expect an error message instead of success feedback on the second submission. 
   @Test(description = "Verify submitting the same schedule twice returns deterministic feedback")
     public void shouldReturnDeterministicFeedbackForDuplicateSubmission() {
@@ -421,6 +420,7 @@ public class ScheduleInspectionTest extends BaseTest {
         LOGGER.info(() -> "Validating scheduled events for zone=" + zone + ", auditor=" + auditor
                 + ", expectedCount=" + expectedDates.size());
         scheduleInspectionPage.setScheduleListDateRange(iso(startDate), iso(endDate));
+        scheduleInspectionPage.searchScheduleList(zone);
         scheduleInspectionPage.waitForScheduleGrid();
         int matchedEvents = scheduleInspectionPage.waitForScheduledEvents(
                 zone,
