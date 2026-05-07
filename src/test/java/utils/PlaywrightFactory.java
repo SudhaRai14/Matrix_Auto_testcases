@@ -18,6 +18,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import java.awt.Dimension;
+import java.awt.Toolkit;
 
 public final class PlaywrightFactory {
     private static final Path DEFAULT_DRIVER_TMP_DIR = Paths.get("target", "playwright-driver");
@@ -104,9 +106,6 @@ public final class PlaywrightFactory {
         BrowserType.LaunchOptions launchOptions = new BrowserType.LaunchOptions()
                 .setHeadless(headless);
 
-        if (!headless) {
-            launchOptions.setArgs(List.of("--start-maximized"));
-        }
 
         Path chromiumExecutable = resolveChromiumExecutable(headless);
         if (chromiumExecutable != null) {
@@ -194,9 +193,39 @@ public final class PlaywrightFactory {
         }
     }
 
+    // public static BrowserContext createContext(Browser browser) {
+    //     return browser.newContext(new Browser.NewContextOptions().setViewportSize(1920,1080));
+    // }
+
     public static BrowserContext createContext(Browser browser) {
-        return browser.newContext(new Browser.NewContextOptions().setViewportSize(1920, 1080));
+
+    boolean headless = isHeadlessEnabled();
+
+    Browser.NewContextOptions options = new Browser.NewContextOptions();
+
+    if (!headless) {
+        try {
+            Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
+
+            options.setViewportSize(
+                    (int) screenSize.getWidth(),
+                    (int) screenSize.getHeight()
+            );
+
+            System.out.println("Screen size applied: "
+                    + screenSize.getWidth() + "x" + screenSize.getHeight());
+
+        } catch (Exception e) {
+            // fallback
+            options.setViewportSize(1920, 1080);
+        }
+    } else {
+        // headless fallback
+        options.setViewportSize(1920, 1080);
     }
+
+    return browser.newContext(options);
+}
 
     public static BrowserContext createContext(Browser browser, Path storageStatePath) {
         Browser.NewContextOptions options = new Browser.NewContextOptions()

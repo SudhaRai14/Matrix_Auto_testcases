@@ -20,6 +20,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.logging.Logger;
+import com.microsoft.playwright.Locator.GetByRoleOptions;
 
 
 public class ScheduleInspectionPage 
@@ -2314,14 +2315,6 @@ public class ScheduleInspectionPage
                 .setTimeout(DEFAULT_TIMEOUT_MS));
     }
 
-    // private void clickConfirmDelete()
-    // {
-    //     clearFeedbackSnapshot();
-    //     Locator deleteButton = visibleDeleteConfirmationButton();
-    //     deleteButton.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
-    //     deleteButton.click(new Locator.ClickOptions().setForce(true));
-    //     waitForLoadingToFinish();
-    // }
 
     private void clickConfirmDelete() {
 
@@ -2333,22 +2326,22 @@ public class ScheduleInspectionPage
     Locator deleteBtn = drawer.getByRole(AriaRole.BUTTON,
             new Locator.GetByRoleOptions().setName("Delete"));
 
-    deleteBtn.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+        deleteBtn.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
 
     // Step 3: Scroll INSIDE drawer (critical)
-    deleteBtn.scrollIntoViewIfNeeded();
+        deleteBtn.scrollIntoViewIfNeeded();
 
     // Step 4: Stabilize UI (drawer animation / footer render)
-    page.waitForTimeout(300);
+        page.waitForTimeout(300);
 
     // Step 5: Click safely
-    try {
-        deleteBtn.click();
-    } catch (Exception e) {
-        // fallback for tricky overlay/scroll issues
-        deleteBtn.evaluate("el => el.click()");
+        try {
+            deleteBtn.click();
+        } catch (Exception e) {
+            // fallback for tricky overlay/scroll issues
+            deleteBtn.evaluate("el => el.click()");
+        }
     }
-}
 
     private void waitForDeleteAuditMenu()
     {
@@ -2389,6 +2382,45 @@ public class ScheduleInspectionPage
 
     return banner.first().innerText().trim();
    
+    }
+
+    public void openDeleteAuditDrawer(String template, String building, String level,
+                                  String zone, String auditDate, String auditor) 
+    {
+
+        clickScheduledAuditActions(template, building, level, zone, auditDate, auditor);
+        clickDeleteAuditMenuItem();
+        waitForDeleteConfirmationModal(); // your existing method
+    }
+
+    public void clickCancelDelete() {
+
+        // Target ONLY delete drawer
+        Locator drawer = page.locator(".ant-drawer-content").last();
+
+        // Scoped cancel button
+        Locator cancelBtn = drawer.getByRole(AriaRole.BUTTON,
+                new GetByRoleOptions().setName("Cancel"));
+
+        cancelBtn.waitFor(new Locator.WaitForOptions()
+                .setState(WaitForSelectorState.VISIBLE));
+
+        cancelBtn.scrollIntoViewIfNeeded();
+
+        cancelBtn.click();
+
+        // CRITICAL WAIT (this is missing in your code)
+        drawer.waitFor(new Locator.WaitForOptions()
+                .setState(WaitForSelectorState.HIDDEN)
+                .setTimeout(5000));
+
+        page.waitForTimeout(300); // animation buffer
+    }
+    public boolean isDeleteDrawerVisible() 
+    {
+        Locator drawer = page.locator(".ant-drawer-content").last();
+
+        return drawer.count() > 0 && drawer.first().isVisible();
     }
 
     private String cellText(Locator row, int columnIndex)
