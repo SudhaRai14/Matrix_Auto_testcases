@@ -642,9 +642,12 @@ public class ScheduleInspectionPage
         clickDeleteAuditMenuItem();
         waitForDeleteConfirmationModal();
         clickConfirmDelete();
+        
+        page.waitForTimeout(200);
 
-        String feedback = getToastMessageIfPresent(DEFAULT_TIMEOUT_MS);
-        closeSuccessPopupIfPresent();
+        String feedback = captureDeleteSuccessBanner();
+        System.out.println("Delete feedback: " + feedback);
+        
         waitForScheduleListToRefresh();
         waitForLoadingToFinish();
 
@@ -2311,14 +2314,41 @@ public class ScheduleInspectionPage
                 .setTimeout(DEFAULT_TIMEOUT_MS));
     }
 
-    private void clickConfirmDelete()
-    {
-        clearFeedbackSnapshot();
-        Locator deleteButton = visibleDeleteConfirmationButton();
-        deleteButton.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
-        deleteButton.click(new Locator.ClickOptions().setForce(true));
-        waitForLoadingToFinish();
+    // private void clickConfirmDelete()
+    // {
+    //     clearFeedbackSnapshot();
+    //     Locator deleteButton = visibleDeleteConfirmationButton();
+    //     deleteButton.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+    //     deleteButton.click(new Locator.ClickOptions().setForce(true));
+    //     waitForLoadingToFinish();
+    // }
+
+    private void clickConfirmDelete() {
+
+    // Step 1: Identify visible drawer
+    Locator drawer = page.locator(".ant-drawer-content:visible").last();
+    drawer.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+
+    // Step 2: Locate Delete button inside drawer ONLY
+    Locator deleteBtn = drawer.getByRole(AriaRole.BUTTON,
+            new Locator.GetByRoleOptions().setName("Delete"));
+
+    deleteBtn.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+
+    // Step 3: Scroll INSIDE drawer (critical)
+    deleteBtn.scrollIntoViewIfNeeded();
+
+    // Step 4: Stabilize UI (drawer animation / footer render)
+    page.waitForTimeout(300);
+
+    // Step 5: Click safely
+    try {
+        deleteBtn.click();
+    } catch (Exception e) {
+        // fallback for tricky overlay/scroll issues
+        deleteBtn.evaluate("el => el.click()");
     }
+}
 
     private void waitForDeleteAuditMenu()
     {
@@ -2347,6 +2377,18 @@ public class ScheduleInspectionPage
                         ".swal-overlay--show-modal button:visible:has-text('Delete'), " +
                         "[role='dialog']:visible button:has-text('Delete')")
                 .last();
+    }
+
+    public String captureDeleteSuccessBanner() {
+
+    // Target banner near header (based on your UI)
+    Locator banner = page.locator("text=Audit successfully deleted");
+
+    banner.waitFor(new Locator.WaitForOptions()
+            .setTimeout(5000));
+
+    return banner.first().innerText().trim();
+   
     }
 
     private String cellText(Locator row, int columnIndex)

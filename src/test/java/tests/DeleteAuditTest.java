@@ -13,11 +13,11 @@ import java.util.Locale;
 public class DeleteAuditTest extends BaseTest {
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ISO_LOCAL_DATE;
     private static final DateTimeFormatter UI_AUDIT_DATE_FORMAT = DateTimeFormatter.ofPattern("MMM dd, yyyy", Locale.ENGLISH);
-    private static final String TARGET_TEMPLATE = "Checkbox question";
+    private static final String TARGET_TEMPLATE = "Cockroach Operational Review Inspection";
     private static final String TARGET_BUILDING = "B1";
-    private static final String TARGET_LEVEL = "L1";
-    private static final String TARGET_ZONE = "Zone D";
-    private static final String TARGET_AUDIT_DATE = "May 01, 2026";
+    private static final String TARGET_LEVEL = "G";
+    private static final String TARGET_ZONE = "Zone F";
+    private static final String TARGET_AUDIT_DATE = "Jun 07, 2026";
     private static final String TARGET_AUDITOR = "Sudha Rai";
 
     @Test(description = "Verify deleting a scheduled audit from the paginated schedule grid")
@@ -43,11 +43,25 @@ public class DeleteAuditTest extends BaseTest {
                 TARGET_ZONE,
                 TARGET_AUDIT_DATE,
                 TARGET_AUDITOR);
+        System.out.println("Deleted Audit Details: " + deletedAudit);
+        
+       Assert.assertTrue(
+        deletedAudit.feedback().toLowerCase(Locale.ENGLISH)
+        .contains("audit successfully deleted"),
+        "Deleting a scheduled audit should show a deleted successfully message. Feedback="
+        + deletedAudit.feedback());
 
-        Assert.assertTrue(
-                deletedAudit.feedback().toLowerCase(Locale.ENGLISH).contains("Audit successfully deleted"),
-                "Deleting a scheduled audit should show a deleted successfully message. Feedback="
-                        + deletedAudit.feedback());
+        //Refresh and verify the deleted audit no longer appears in the schedule grid
+        page.waitForTimeout(1000);
+        page.reload();
+        scheduleInspectionPage.waitForScheduleGrid();
+
+        scheduleInspectionPage.setScheduleListDateRange(
+        format(targetDate), format(targetDate));
+
+        scheduleInspectionPage.searchScheduleList(TARGET_ZONE);
+
+        scheduleInspectionPage.waitForScheduleGrid();
 
         Assert.assertFalse(
                 scheduleInspectionPage.hasScheduledAuditAcrossPages(
