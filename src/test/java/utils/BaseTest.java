@@ -71,6 +71,8 @@ public class BaseTest {
 
     @AfterMethod(alwaysRun = true)
     public void tearDown() {
+        try
+        {
         if (context != null) {
             context.close();
         }
@@ -79,8 +81,8 @@ public class BaseTest {
         }
         if (playwright != null) {
             playwright.close();
-        }
-        
+        }}
+        catch (Exception ignored) {}
     }
 
     protected void loginWithValidCredentials() {
@@ -110,6 +112,7 @@ public class BaseTest {
         loginPage.waitForHomeContentToRender();
         captureStep("05-post-login");
     }
+
 
     protected void openScheduleInspectionModal() {
         loginWithValidCredentials();

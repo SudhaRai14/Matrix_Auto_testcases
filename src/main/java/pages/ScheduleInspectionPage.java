@@ -672,6 +672,198 @@ public class ScheduleInspectionPage
         return findScheduledAuditAcrossPages(template, building, level, zone, auditDate, auditor).isPresent();
     }
 
+    public Optional<ScheduledAuditRecord> findFirstScheduledAuditWithStatusAcrossPages(String status)
+    {
+        goToFirstSchedulePage();
+        Set<String> visitedPages = new LinkedHashSet<>();
+
+        while (true) {
+            waitForScheduleListToRefresh();
+            String pageSignature = currentSchedulePageSignature();
+            if (!visitedPages.add(pageSignature)) {
+                return Optional.empty();
+            }
+
+            Optional<ScheduledAuditRecord> record = findFirstScheduledAuditWithStatusOnCurrentPage(status);
+            if (record.isPresent()) {
+                return record;
+            }
+
+            if (!goToNextSchedulePage()) {
+                return Optional.empty();
+            }
+        }
+    }
+
+    public ScheduledAuditRecord editScheduledAuditDateAndAuditor(ScheduledAuditRecord record,
+                                                                 String newAuditDate,
+                                                                 String preferredAuditor)
+    {
+        clickScheduledAuditActions(
+                record.template(),
+                record.building(),
+                record.level(),
+                record.zone(),
+                record.auditDate(),
+                record.auditor(),
+                false);
+        clickEditAuditMenuItem();
+        waitForEditAuditDrawer();
+
+        if (newAuditDate != null && !newAuditDate.isBlank()) {
+            fillEditAuditDate(newAuditDate);
+        }
+
+        String updatedAuditor = record.auditor();
+        if (preferredAuditor != null && !preferredAuditor.isBlank()) {
+            fillEditAuditAuditor(preferredAuditor);
+            updatedAuditor = preferredAuditor;
+        } else {
+            updatedAuditor = fillEditAuditWithAnyDifferentAuditor(record.auditor());
+        }
+
+        clickSaveEditAudit();
+        String feedback = captureEditAuditFeedback();
+        waitForScheduleListToRefresh();
+        waitForLoadingToFinish();
+
+        return new ScheduledAuditRecord(
+                record.template(),
+                record.building(),
+                record.level(),
+                record.zone(),
+                updatedAuditor,
+                newAuditDate == null || newAuditDate.isBlank() ? record.auditDate() : newAuditDate,
+                feedback);
+    }
+
+    public String getAnyDifferentAuditor(String currentAuditor) {
+        Locator trigger = resolveEditAuditAuditorTrigger();
+        clickDropdownTrigger(trigger);
+        Locator dropdown = waitForVisibleSelectDropdown();
+        Locator options = dropdown.locator(".ant-select-item-option, [role='option']");
+
+        long start = System.currentTimeMillis();
+        while (System.currentTimeMillis() - start < DEFAULT_TIMEOUT_MS) {
+            int count = options.count();
+            for (int index = 0; index < count; index++) {
+                Locator option = options.nth(index);
+                if (!option.isVisible()) {
+                    continue;
+                }
+
+                String text = option.innerText().trim();
+                if (!text.isBlank()
+                        && !"No data".equalsIgnoreCase(text)
+                        && !text.equalsIgnoreCase(currentAuditor)) {
+                    page.keyboard().press("Escape");
+                    page.waitForTimeout(200);
+                    return text;
+                }
+            }
+            page.waitForTimeout(250);
+        }
+
+        page.keyboard().press("Escape");
+        throw new IllegalStateException("Unable to find different auditor.");
+    }
+
+    public boolean isEditAuditOptionAvailable(
+        ScheduledAuditRecord audit) {
+
+        clickScheduledAuditActions(
+                audit.template(),
+                audit.building(),
+                audit.level(),
+                audit.zone(),
+                audit.auditDate(),
+                audit.auditor(),
+                false);
+
+        Locator activeDropdown = page.locator(
+                ".ant-dropdown:not(.ant-dropdown-hidden)")
+                .last();
+
+        activeDropdown.waitFor(new Locator.WaitForOptions()
+                .setState(WaitForSelectorState.VISIBLE)
+                .setTimeout(3000));
+
+        Locator editOption =
+                activeDropdown.locator("text=Edit Audit");
+
+        boolean visible =
+                editOption.count() > 0
+                && editOption.first().isVisible();
+
+        page.keyboard().press("Escape");
+
+        return visible;
+    }
+    public Locator findScheduledAuditRowAcrossPages(
+            String template,
+            String building,
+            String level,
+            String zone,
+            String auditDate,
+            String auditor) {
+
+        goToFirstSchedulePage();
+
+        Set<String> visitedPages = new LinkedHashSet<>();
+
+        while (true) {
+
+            waitForScheduleListToRefresh();
+
+            String pageSignature = currentSchedulePageSignature();
+
+            if (!visitedPages.add(pageSignature)) {
+                return null;
+            }
+
+            Locator rows =
+                    page.locator("main tbody tr:not(.ant-table-placeholder)");
+
+            int rowCount = rows.count();
+
+            for (int i = 0; i < rowCount; i++) {
+
+                Locator row = rows.nth(i);
+
+                if (!row.isVisible()) {
+                    continue;
+                }
+
+                String rowText =
+                        row.innerText().toLowerCase(Locale.ENGLISH);
+
+                boolean matches =
+                        rowText.contains(template.toLowerCase())
+                        && rowText.contains(building.toLowerCase())
+                        && rowText.contains(level.toLowerCase())
+                        && rowText.contains(zone.toLowerCase())
+                        && rowText.contains(auditor.toLowerCase());
+
+                if (matches) {
+                    return row;
+                }
+            }
+
+            if (!goToNextSchedulePage()) {
+                return null;
+            }
+        }
+    }
+
+
+
+
+
+
+
+
+
+
     private Optional<ScheduledAuditRecord> findScheduledAuditAcrossPages(String template,
                                                                          String building,
                                                                          String level,
@@ -755,6 +947,39 @@ public class ScheduleInspectionPage
         return Optional.empty();
     }
 
+    private Optional<ScheduledAuditRecord> findFirstScheduledAuditWithStatusOnCurrentPage(String status)
+    {
+        int templateColumnIndex = getSchedulePageColumnIndex("Template");
+        int buildingColumnIndex = getSchedulePageColumnIndex("Building");
+        int levelColumnIndex = getSchedulePageColumnIndex("Level");
+        int zoneColumnIndex = getSchedulePageColumnIndex("Zone");
+        int auditorColumnIndex = getSchedulePageColumnIndex("Assigned To");
+        int auditDateColumnIndex = getSchedulePageColumnIndex("Audit Date");
+        int statusColumnIndex = getSchedulePageColumnIndex("Status");
+        Locator rows = page.locator("main tbody tr:not(.ant-table-placeholder)");
+        int rowCount = rows.count();
+
+        for (int index = 0; index < rowCount; index++) {
+            Locator row = rows.nth(index);
+            if (!row.isVisible()) {
+                continue;
+            }
+
+            if (cellText(row, statusColumnIndex).equalsIgnoreCase(status)) {
+                return Optional.of(new ScheduledAuditRecord(
+                        cellText(row, templateColumnIndex),
+                        cellText(row, buildingColumnIndex),
+                        cellText(row, levelColumnIndex),
+                        cellText(row, zoneColumnIndex),
+                        cellText(row, auditorColumnIndex),
+                        cellText(row, auditDateColumnIndex),
+                        ""));
+            }
+        }
+
+        return Optional.empty();
+    }
+
     private List<String> getScheduledAuditDatesAcrossPages(String zone,
                                                            String auditor,
                                                            List<String> expectedDates,
@@ -785,61 +1010,50 @@ public class ScheduleInspectionPage
         return dates;
     }
 
-//     private int countScheduledEvents(String expectedAuditor,
-//                                  LocalDate startDate,
-//                                  LocalDate endDate) {
+    public void openEditAuditDrawer(ScheduledAuditRecord audit) {
+        clickScheduledAuditActions(
+                audit.template(),
+                audit.building(),
+                audit.level(),
+                audit.zone(),
+                audit.auditDate(),
+                audit.auditor(),
+                false);
+        clickEditAuditMenuItem();
+        waitForEditAuditDrawer();
+    }
 
-//     Locator rows = page.locator("table tbody tr");
+    public void updateAuditDate(String date) {
+        fillEditAuditDate(date);
+    }
 
-//     int count = 0;
-//     int rowCount = rows.count();
+    public void updateAuditAuditor(String auditor) {
+        fillEditAuditAuditor(auditor);
+    }
 
-//     int auditorCol = getColumnIndex("Auditor");
-//     int dateCol = getColumnIndex("Date");
+    public void cancelEditAudit() {
+        Locator cancelButton = page.locator(
+                ".ant-drawer:visible button:has-text('Cancel'), " +
+                        ".ant-drawer:visible .ant-drawer-footer button:not(.ant-btn-primary):visible")
+                .last();
+        cancelButton.waitFor(new Locator.WaitForOptions()
+                .setState(WaitForSelectorState.VISIBLE)
+                .setTimeout(DEFAULT_TIMEOUT_MS));
+        cancelButton.scrollIntoViewIfNeeded();
+        try {
+            cancelButton.click(new Locator.ClickOptions().setForce(true));
+        } catch (RuntimeException ex) {
+            cancelButton.evaluate("element => element.click()");
+        }
+    }
 
-//     for (int i = 0; i < rowCount; i++) {
+    public void waitForEditDrawerToClose() {
+        visibleEditAuditDrawer().waitFor(
+                new Locator.WaitForOptions()
+                        .setState(WaitForSelectorState.HIDDEN)
+                        .setTimeout(DEFAULT_TIMEOUT_MS));
+    }
 
-//         Locator row = rows.nth(i);
-
-//         String auditor = row.locator("td").nth(auditorCol)
-//                 .innerText().trim();
-
-//         String dateText = row.locator("td").nth(dateCol)
-//                 .innerText().trim();
-
-//         LocalDate rowDate = parseDate(dateText);
-
-//         if (auditor.equalsIgnoreCase(expectedAuditor)
-//                 && !rowDate.isBefore(startDate)
-//                 && !rowDate.isAfter(endDate)) {
-
-//             count++;
-//         }
-//     }
-
-//     return count;
-// }
-
-//     private LocalDate parseDate(String dateText) {
-
-//     String text = dateText.trim();
-
-//     List<DateTimeFormatter> formats = List.of(
-//         DateTimeFormatter.ofPattern("yyyy-MM-dd"),
-//         DateTimeFormatter.ofPattern("dd/MM/yyyy"),
-//         DateTimeFormatter.ofPattern("dd MMM yyyy"),
-//         DateTimeFormatter.ofPattern("MMM d, yyyy"),
-//         DateTimeFormatter.ofPattern("d MMM yyyy")
-//     );
-
-//     for (DateTimeFormatter formatter : formats) {
-//         try {
-//             return LocalDate.parse(text, formatter);
-//         } catch (Exception ignored) {}
-//     }
-
-//     throw new IllegalArgumentException("Unsupported date format: " + text);
-// }
     public void waitForScheduledEvents(String zone, String auditor, int expectedCount)
     {
         long start = System.currentTimeMillis();
@@ -2224,6 +2438,17 @@ public class ScheduleInspectionPage
                                             String auditDate,
                                             String auditor)
     {
+        clickScheduledAuditActions(template, building, level, zone, auditDate, auditor, true);
+    }
+
+    private void clickScheduledAuditActions(String template,
+                                            String building,
+                                            String level,
+                                            String zone,
+                                            String auditDate,
+                                            String auditor,
+                                            boolean waitForDeleteOption)
+    {
         goToFirstSchedulePage();
         Set<String> visitedPages = new LinkedHashSet<>();
 
@@ -2244,12 +2469,32 @@ public class ScheduleInspectionPage
             if (row.isPresent()) {
                 int actionsColumnIndex = getSchedulePageColumnIndex("Actions");
                 Locator actionsCell = row.get().locator("td").nth(actionsColumnIndex);
+                // Locator menuButton = actionsCell.locator(
+                //         ".ant-dropdown-trigger:visible, [aria-label='ellipsis']:visible, button:visible")
+                //         .first();
+
                 Locator menuButton = actionsCell.locator(
-                        ".ant-dropdown-trigger:visible, [aria-label='ellipsis']:visible, button:visible")
+                        ".ant-dropdown-trigger, " +
+                        ".ant-btn-icon-only, " +
+                        "button, " +
+                        "[role='button']")
                         .first();
-                menuButton.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
-                menuButton.click(new Locator.ClickOptions().setForce(true));
-                waitForDeleteAuditMenu();
+                menuButton.waitFor(new Locator.WaitForOptions()
+                        .setState(WaitForSelectorState.VISIBLE)
+                        .setTimeout(DEFAULT_TIMEOUT_MS));
+
+                menuButton.scrollIntoViewIfNeeded();
+
+                menuButton.click(new Locator.ClickOptions()
+                        .setForce(true));
+
+                // menuButton.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+                // menuButton.click(new Locator.ClickOptions().setForce(true));
+                if (waitForDeleteOption) {
+                    waitForDeleteAuditMenu();
+                } else {
+                    waitForAuditActionMenu();
+                }
                 return;
             }
 
@@ -2308,6 +2553,13 @@ public class ScheduleInspectionPage
         deleteAudit.click(new Locator.ClickOptions().setForce(true));
     }
 
+    private void clickEditAuditMenuItem()
+    {
+        Locator editAudit = visibleEditAuditMenuItem();
+        editAudit.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+        editAudit.click(new Locator.ClickOptions().setForce(true));
+    }
+
     private void waitForDeleteConfirmationModal()
     {
         visibleDeleteConfirmationButton().waitFor(new Locator.WaitForOptions()
@@ -2350,6 +2602,15 @@ public class ScheduleInspectionPage
                 .setTimeout(DEFAULT_TIMEOUT_MS));
     }
 
+    private void waitForAuditActionMenu()
+    {
+        page.locator(".ant-dropdown:not(.ant-dropdown-hidden):visible, .ant-dropdown-menu:visible, [role='menu']:visible")
+                .first()
+                .waitFor(new Locator.WaitForOptions()
+                        .setState(WaitForSelectorState.VISIBLE)
+                        .setTimeout(DEFAULT_TIMEOUT_MS));
+    }
+
     private Locator visibleDeleteAuditMenuItem()
     {
         return page.locator(
@@ -2357,6 +2618,16 @@ public class ScheduleInspectionPage
                         ".ant-dropdown-menu:visible .ant-dropdown-menu-title-content:text-is('Delete Audit'), " +
                         ".ant-dropdown:visible .ant-dropdown-menu-item:has-text('Delete Audit'), " +
                         "[role='menu']:visible :text-is('Delete Audit')")
+                .first();
+    }
+
+    private Locator visibleEditAuditMenuItem()
+    {
+        return page.locator(
+                ".ant-dropdown:not(.ant-dropdown-hidden):visible .ant-dropdown-menu-title-content:text-is('Edit Audit'), " +
+                        ".ant-dropdown-menu:visible .ant-dropdown-menu-title-content:text-is('Edit Audit'), " +
+                        ".ant-dropdown:visible .ant-dropdown-menu-item:has-text('Edit Audit'), " +
+                        "[role='menu']:visible :text-is('Edit Audit')")
                 .first();
     }
 
@@ -2421,6 +2692,186 @@ public class ScheduleInspectionPage
         Locator drawer = page.locator(".ant-drawer-content").last();
 
         return drawer.count() > 0 && drawer.first().isVisible();
+    }
+
+    private void waitForEditAuditDrawer()
+    {
+        visibleEditAuditDrawer().waitFor(new Locator.WaitForOptions()
+                .setState(WaitForSelectorState.VISIBLE)
+                .setTimeout(DEFAULT_TIMEOUT_MS));
+    }
+
+    private Locator visibleEditAuditDrawer()
+    {
+        return page.locator(
+                ".ant-drawer-content:visible:has-text('Edit Audit'), " +
+                        ".ant-drawer-content:visible:has-text('Audit Date'), " +
+                        ".ant-drawer-content:visible:has-text('Auditor')")
+                .last();
+    }
+
+    private void fillEditAuditDate(String auditDate)
+    {
+        Locator drawer = visibleEditAuditDrawer();
+        Locator field = findFieldContainerInRoot(drawer, "Audit Date");
+        Locator picker = field.locator(".ant-picker:visible").first();
+        if (picker.count() == 0) {
+            picker = field.locator("input:visible").first();
+        }
+
+        picker.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+        try {
+            picker.scrollIntoViewIfNeeded();
+            picker.click(new Locator.ClickOptions().setForce(true));
+        } catch (RuntimeException ex) {
+            picker.evaluate("element => element.click()");
+        }
+        selectDateFromPicker(auditDate);
+        page.waitForTimeout(300);
+    }
+
+    private void fillEditAuditAuditor(String auditor)
+    {
+        Locator trigger = resolveEditAuditAuditorTrigger();
+        clickDropdownTrigger(trigger);
+        waitForVisibleSelectDropdown();
+        Locator option = findVisibleDropdownOptionByText(auditor);
+        option.click(new Locator.ClickOptions().setForce(true));
+    }
+
+    private String fillEditAuditWithAnyDifferentAuditor(String currentAuditor)
+    {
+        Locator trigger = resolveEditAuditAuditorTrigger();
+        clickDropdownTrigger(trigger);
+        Locator dropdown = waitForVisibleSelectDropdown();
+        Locator options = dropdown.locator(".ant-select-item-option, [role='option']");
+
+        long start = System.currentTimeMillis();
+        while (System.currentTimeMillis() - start < DEFAULT_TIMEOUT_MS) {
+            int count = options.count();
+            for (int index = 0; index < count; index++) {
+                Locator option = options.nth(index);
+                if (!option.isVisible()) {
+                    continue;
+                }
+
+                String optionText = option.innerText().trim();
+                if (!optionText.isBlank()
+                        && !"No data".equalsIgnoreCase(optionText)
+                        && !optionText.equalsIgnoreCase(currentAuditor)) {
+                    option.click(new Locator.ClickOptions().setForce(true));
+                    return optionText;
+                }
+            }
+            page.waitForTimeout(250);
+        }
+
+        page.keyboard().press("Escape");
+        throw new IllegalStateException("Unable to find a different auditor option for Edit Audit.");
+    }
+
+    private Locator resolveEditAuditAuditorTrigger()
+    {
+        Locator drawer = visibleEditAuditDrawer();
+        for (String label : new String[]{"Auditor", "Auditor Name", "Assigned To"}) {
+            try {
+                Locator field = findFieldContainerInRoot(drawer, label);
+                return resolveDropdownTrigger(field);
+            } catch (RuntimeException ignored) {
+                // Try the next label or the generic drawer-level select fallback.
+            }
+        }
+
+        Locator selectors = drawer.locator(".ant-select-selector:visible, nz-select .ant-select-selector:visible, [role='combobox']:visible");
+        long start = System.currentTimeMillis();
+        while (System.currentTimeMillis() - start < DEFAULT_TIMEOUT_MS) {
+            int count = selectors.count();
+            for (int index = count - 1; index >= 0; index--) {
+                Locator selector = selectors.nth(index);
+                if (selector.isVisible()) {
+                    return selector;
+                }
+            }
+            page.waitForTimeout(250);
+        }
+
+        throw new IllegalStateException("Unable to locate auditor selector in the Edit Audit drawer.");
+    }
+
+    private void clickSaveEditAudit()
+    {
+        Locator saveButton = page.locator(
+                ".ant-drawer:visible button:has-text('Save'), " +
+                        ".ant-drawer:visible button:has-text('Update'), " +
+                        ".ant-drawer:visible button:has-text('Submit'), " +
+                        ".ant-drawer:visible .ant-drawer-footer button.ant-btn-primary:visible, " +
+                        ".ant-drawer:visible button.ant-btn-primary:visible")
+                .last();
+        saveButton.waitFor(new Locator.WaitForOptions()
+                .setState(WaitForSelectorState.VISIBLE)
+                .setTimeout(DEFAULT_TIMEOUT_MS));
+        saveButton.scrollIntoViewIfNeeded();
+        try {
+            saveButton.click(new Locator.ClickOptions().setForce(true));
+        } catch (RuntimeException ex) {
+            saveButton.evaluate("element => element.click()");
+        }
+    }
+
+    private String captureEditAuditFeedback()
+    {
+        long start = System.currentTimeMillis();
+        while (System.currentTimeMillis() - start < DEFAULT_TIMEOUT_MS) {
+            String feedback = readVisibleFeedbackText();
+            if (!feedback.isBlank()) {
+                return feedback;
+            }
+            page.waitForTimeout(250);
+        }
+
+        return "";
+    }
+
+    private Locator findFieldContainerInRoot(Locator root, String label)
+    {
+        String normalizedLabel = label.endsWith(":") ? label.substring(0, label.length() - 1) : label;
+
+        for (String exactLabel : new String[]{label, normalizedLabel + ":", normalizedLabel}) {
+            Locator exactContainers = root.locator("xpath=.//*[normalize-space()='" + exactLabel + "']/ancestor::*[self::div or self::nz-form-item][1]");
+            Optional<Locator> visibleDropdownContainer = firstVisibleWithDropdown(exactContainers);
+            if (visibleDropdownContainer.isPresent()) {
+                return visibleDropdownContainer.get();
+            }
+
+            Optional<Locator> visibleContainer = firstVisible(exactContainers);
+            if (visibleContainer.isPresent()) {
+                return visibleContainer.get();
+            }
+        }
+
+        Locator partialContainers = root.locator("xpath=.//*[contains(normalize-space(), '" + normalizedLabel + "')]/ancestor::*[self::div or self::nz-form-item][1]");
+        Optional<Locator> visiblePartialContainer = firstVisibleWithDropdown(partialContainers);
+        if (visiblePartialContainer.isPresent()) {
+            return visiblePartialContainer.get();
+        }
+
+        visiblePartialContainer = firstVisible(partialContainers);
+        if (visiblePartialContainer.isPresent()) {
+            return visiblePartialContainer.get();
+        }
+
+        Locator container = partialContainers.first();
+        container.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+        return container;
+    }
+
+    private boolean isVisible(Locator locator)
+    {
+        try {
+            return locator.count() > 0 && locator.first().isVisible();
+        } catch (RuntimeException ex) {
+            return false;
+        }
     }
 
     private String cellText(Locator row, int columnIndex)
