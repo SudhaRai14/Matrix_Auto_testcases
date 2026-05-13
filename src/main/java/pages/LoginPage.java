@@ -90,6 +90,10 @@ public class LoginPage {
         return auditorTab.isVisible();
     }
 
+    public void assertAuditorTabVisible() {
+        PlaywrightAssertions.assertThat(auditorTab).isVisible();
+    }
+
     public void openSsoTab() {
         ssoTab.click();
         waitForSsoForm();
@@ -97,6 +101,11 @@ public class LoginPage {
 
     public boolean isSsoPageDisplayed() {
         return page.url().contains("#/sso-login") && ssoEmailInput.isVisible();
+    }
+
+    public void assertSsoPageDisplayed() {
+        page.waitForURL("**/#/sso-login**", new Page.WaitForURLOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+        PlaywrightAssertions.assertThat(ssoEmailInput).isVisible();
     }
 
     public void clickSsoLoginWithoutEmail() {
@@ -117,6 +126,11 @@ public class LoginPage {
         } catch (RuntimeException ex) {
             return false;
         }
+    }
+
+    public void assertPropertySelectionDisplayed() {
+        PlaywrightAssertions.assertThat(propertySelect).isVisible();
+        PlaywrightAssertions.assertThat(continueButton).isVisible();
     }
 
     public void selectFirstPropertyAndLogin() {
@@ -153,6 +167,11 @@ public class LoginPage {
         } catch (RuntimeException ex) {
             return page.url().contains("#/home");
         }
+    }
+
+    public void assertLoginSuccessful() {
+        waitForHomePage();
+        PlaywrightAssertions.assertThat(page.locator("body")).not().hasText(Pattern.compile("^\\s*$"));
     }
 
     public boolean isLoginFormVisible() {
@@ -196,9 +215,21 @@ public class LoginPage {
                 && errorMessage.first().innerText().toLowerCase().contains("username");
     }
 
+    public void assertUsernameValidationDisplayed() {
+        PlaywrightAssertions.assertThat(errorMessage.first()).containsText(Pattern.compile("username", Pattern.CASE_INSENSITIVE));
+    }
+
     public boolean isPasswordValidationDisplayed() {
         String classes = passwordInput.getAttribute("class");
         return classes != null && classes.contains("ng-invalid");
+    }
+
+    public void assertPasswordValidationDisplayed() {
+        PlaywrightAssertions.assertThat(passwordInput).hasClass(Pattern.compile(".*ng-invalid.*"));
+    }
+
+    public void assertSsoEmailValidationDisplayed() {
+        PlaywrightAssertions.assertThat(errorMessage.first()).containsText(Pattern.compile("email", Pattern.CASE_INSENSITIVE));
     }
 
     public void assertLoginFormIsReady() {

@@ -8,32 +8,23 @@ import models.FrequencyConfig;
 import utils.TestDataLoader;
 import utils.RecurrenceUtils;
 import utils.FrequencyValidator;
-import pages.ScheduleInspectionPage.RecurrenceMonth;
+//import pages.ScheduleInspectionPage.RecurrenceMonth;
 import pages.ScheduleInspectionPage.ScheduleFormData;
 import utils.BaseTest;
 
-import java.time.DayOfWeek;
+//import java.time.DayOfWeek;
 import java.time.LocalDate;
-import java.time.YearMonth;
+//import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.logging.Logger;
-import java.time.temporal.TemporalAdjusters;
+//import java.time.temporal.TemporalAdjusters;
 
 public class ScheduleInspectionTest extends BaseTest {
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ISO_LOCAL_DATE;
     private static final Logger LOGGER = Logger.getLogger(ScheduleInspectionTest.class.getName());
-    // private static final String TEMPLATE_DAILY = "Daily Audit Template";
-    // private static final String TEMPLATE_STANDARD = "Standard Audit Template";
-    // private static final String TEMPLATE_FULL_PROPERTY = "Full Property Template";
-    // private static final String BUILDING = "Back of School";
-    // private static final String BUILDING_MAIN_CAMPUS = "Main Campus";
-    // private static final String ZONE_CATEGORY_GUEST_ROOM = "Guest Room";
-    // private static final String ZONE_CATEGORY_PUBLIC_AREA = "Public Area";
-    // private static final String FLOOR_1 = "Floor 1";
-    // private static final String FLOOR_2 = "Floor 2";
     private static final String DEFAULT_AUDITOR = "Sudha Rai";
     private static final String DEFAULT_TIME = "09:00";
 
@@ -41,20 +32,19 @@ public class ScheduleInspectionTest extends BaseTest {
     public void shouldOpenScheduleInspectionModal() {
         openScheduleInspectionModal();
 
-        Assert.assertTrue(scheduleInspectionPage.isModalOpen(), "Schedule Audit modal should open.");
-        Assert.assertTrue(scheduleInspectionPage.isModalTitleVisible(), "Schedule Audit title should be visible.");
-        Assert.assertTrue(auditPage.isScheduleInspectionButtonVisible(),
-                "Schedule Inspection button should remain visible on the page.");
+        scheduleInspectionPage.assertModalOpen();
+        scheduleInspectionPage.assertModalTitleVisible();
+        auditPage.assertScheduleInspectionButtonVisible();
     }
 
     @Test(description = "Verify Cancel closes the Schedule Audit modal")
     public void shouldCloseScheduleInspectionModalOnCancel() {
         openScheduleInspectionModal();
 
-        Assert.assertTrue(scheduleInspectionPage.isModalOpen(), "Schedule Audit modal should open before cancel.");
+        scheduleInspectionPage.assertModalOpen();
         scheduleInspectionPage.clickCancel();
 
-        Assert.assertFalse(scheduleInspectionPage.isModalOpen(), "Schedule Audit modal should close after cancel.");
+        scheduleInspectionPage.assertModalClosed();
     }
 
     @Test(description = "Verify validation is shown when Save is clicked with no required data")
@@ -97,10 +87,8 @@ public class ScheduleInspectionTest extends BaseTest {
         openScheduleInspectionModal();
         String selectedTemplate = scheduleInspectionPage.selectAnyTemplateWithRows();
 
-        Assert.assertTrue(scheduleInspectionPage.isDropdownValueSelected("Template", selectedTemplate),
-                "Selected template should be visible in the Template dropdown.");
-        Assert.assertTrue(scheduleInspectionPage.getZoneRowCount() > 0,
-                "Selecting a template should load one or more schedule rows.");
+        scheduleInspectionPage.assertDropdownValueSelected("Template", selectedTemplate);
+        scheduleInspectionPage.assertZoneRowsLoaded();
     }
 
     @Test(description = "Verify changing building refreshes the schedule grid without breaking it")
@@ -120,10 +108,8 @@ public class ScheduleInspectionTest extends BaseTest {
         String selectedZoneCategory = scheduleInspectionPage.selectAnyZoneCategory();
         String selectedFloor = scheduleInspectionPage.selectAnyFloor();
 
-        Assert.assertTrue(scheduleInspectionPage.isDropdownValueSelected("Zone Category", selectedZoneCategory),
-                "Zone Category selection should be retained.");
-        Assert.assertTrue(scheduleInspectionPage.isDropdownValueSelected("Floor", selectedFloor),
-                "Floor selection should be retained.");
+        scheduleInspectionPage.assertDropdownValueSelected("Zone Category", selectedZoneCategory);
+        scheduleInspectionPage.assertDropdownValueSelected("Floor", selectedFloor);
     }
 
 
@@ -257,9 +243,8 @@ public class ScheduleInspectionTest extends BaseTest {
         scheduleInspectionPage.fillScheduleForm(buildValidCustomData());
         scheduleInspectionPage.chooseStandardOption();
 
-        Assert.assertTrue(scheduleInspectionPage.isStandardSelected(), "Standard should be selected after switching.");
-        Assert.assertTrue(scheduleInspectionPage.areTableFieldsCleared(),
-                "Switching modes should clear the custom row-level values.");
+        scheduleInspectionPage.assertStandardSelected();
+        scheduleInspectionPage.assertTableFieldsCleared();
     }
 
     
@@ -353,7 +338,7 @@ public class ScheduleInspectionTest extends BaseTest {
 
     private ScheduleContext openAndPrepareScheduleAudit() {
         openScheduleInspectionModal();
-        Assert.assertTrue(scheduleInspectionPage.isModalOpen(), "Schedule Audit modal should be visible.");
+        scheduleInspectionPage.assertModalOpen();
 
         if (!scheduleInspectionPage.isCustomSelected()) {
             scheduleInspectionPage.chooseCustomOption();

@@ -25,9 +25,7 @@ public class EditAuditTest extends BaseTest {
         LocalDate updatedAuditDate = parseAuditDate(pendingAudit.auditDate()).plusDays(1);
         String updatedAuditDateText = updatedAuditDate.format(ISO_DATE_FORMAT);
 
-        Assert.assertTrue(
-                scheduleInspectionPage.isEditAuditOptionAvailable(pendingAudit),
-                "Edit Audit option should be available for Pending audits.");
+        scheduleInspectionPage.assertEditAuditOptionAvailable(pendingAudit);
 
         ScheduledAuditRecord updatedAudit = scheduleInspectionPage.editScheduledAuditDateAndAuditor(
                 pendingAudit,
@@ -136,6 +134,7 @@ public class EditAuditTest extends BaseTest {
         auditPage.openScheduleTab();
         auditPage.selectFirstBuildingFromTopBar();
         scheduleInspectionPage.waitForScheduleGrid();
+        scheduleInspectionPage.assertScheduleGridVisible();
     }
 
     private ScheduledAuditRecord firstAuditWithStatus(String status) {

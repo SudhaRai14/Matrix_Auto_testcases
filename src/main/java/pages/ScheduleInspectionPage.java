@@ -170,6 +170,15 @@ public class ScheduleInspectionPage
         return modalTitle.isVisible() || modalBody.isVisible() || modal.isVisible();
     }
 
+    public void assertModalOpen() {
+        waitForModal();
+        PlaywrightAssertions.assertThat(modalTitle.or(modalBody).or(modal)).isVisible();
+    }
+
+    public void assertModalClosed() {
+        PlaywrightAssertions.assertThat(modal).isHidden();
+    }
+
     public void chooseCustomOption() 
     {
         selectRadio(customRadio);
@@ -185,9 +194,21 @@ public class ScheduleInspectionPage
         return isRadioSelected(customRadio);
     }
 
+    public void assertCustomSelected() {
+        if (!isRadioSelected(customRadio)) {
+            throw new AssertionError("Custom radio should be selected.");
+        }
+    }
+
     public boolean isStandardSelected() 
     {
         return isRadioSelected(standardRadio);
+    }
+
+    public void assertStandardSelected() {
+        if (!isRadioSelected(standardRadio)) {
+            throw new AssertionError("Standard radio should be selected.");
+        }
     }
 
     public void selectTemplate(String templateName) 
@@ -878,6 +899,24 @@ public class ScheduleInspectionPage
         return visible;
     }
 
+    public void assertEditAuditOptionAvailable(ScheduledAuditRecord audit) {
+        clickScheduledAuditActions(
+                audit.template(),
+                audit.building(),
+                audit.level(),
+                audit.zone(),
+                audit.auditDate(),
+                audit.auditor(),
+                false);
+
+        Locator activeDropdown = page.locator(".ant-dropdown:not(.ant-dropdown-hidden)").last();
+        activeDropdown.waitFor(new Locator.WaitForOptions()
+                .setState(WaitForSelectorState.VISIBLE)
+                .setTimeout(3000));
+        PlaywrightAssertions.assertThat(activeDropdown.locator("text=Edit Audit").first()).isVisible();
+        page.keyboard().press("Escape");
+    }
+
     public boolean isReAuditOptionAvailable(
         ScheduledAuditRecord audit) {
 
@@ -895,6 +934,20 @@ public class ScheduleInspectionPage
         page.keyboard().press("Escape");
 
         return visible;
+    }
+
+    public void assertReAuditOptionAvailable(ScheduledAuditRecord audit) {
+        clickScheduledAuditActions(
+                audit.template(),
+                audit.building(),
+                audit.level(),
+                audit.zone(),
+                audit.auditDate(),
+                audit.auditor(),
+                false);
+
+        PlaywrightAssertions.assertThat(visibleReAuditMenuItem()).isVisible();
+        page.keyboard().press("Escape");
     }
     
     public Locator findScheduledAuditRowAcrossPages(
@@ -1513,6 +1566,10 @@ public class ScheduleInspectionPage
         modal.waitFor(new Locator.WaitForOptions().setState(WaitForSelectorState.HIDDEN).setTimeout(DEFAULT_TIMEOUT_MS));
     }
 
+    public void assertSaveButtonDisabled() {
+        PlaywrightAssertions.assertThat(saveButton).isDisabled();
+    }
+
     public boolean isSaveButtonDisabled() 
     {
         return !saveButton.isEnabled();
@@ -1556,6 +1613,14 @@ public class ScheduleInspectionPage
                 .filter(new Locator.FilterOptions().setHasText("Scheduled"))
                 .filter(new Locator.FilterOptions().setHasText(auditor));
         return scheduledRows.count() > 0;
+    }
+
+    public void assertScheduledInspectionForAuditorVisible(String auditor) {
+        Locator scheduledRows = page.locator(".custom-table tbody tr")
+                .filter(new Locator.FilterOptions().setHasText("Scheduled"))
+                .filter(new Locator.FilterOptions().setHasText(auditor))
+                .first();
+        PlaywrightAssertions.assertThat(scheduledRows).isVisible();
     }
 
     public boolean rowHasAuditor(String zone, String auditor) 
@@ -1656,13 +1721,27 @@ public class ScheduleInspectionPage
         return rows.count();
     }
 
+    public void assertZoneRowsLoaded() {
+        waitForLoadingToFinish();
+        PlaywrightAssertions.assertThat(rows.first()).isVisible();
+    }
+
     public boolean isDropdownValueSelected(String fieldLabel, String expectedValue) {
         Locator field = findFieldContainer(fieldLabel);
         return field.innerText().toLowerCase().contains(expectedValue.toLowerCase());
     }
 
+    public void assertDropdownValueSelected(String fieldLabel, String expectedValue) {
+        Locator field = findFieldContainer(fieldLabel);
+        PlaywrightAssertions.assertThat(field).containsText(Pattern.compile(Pattern.quote(expectedValue), Pattern.CASE_INSENSITIVE));
+    }
+
     public boolean isModalTitleVisible() {
         return modalTitle.isVisible() || modalBody.isVisible();
+    }
+
+    public void assertModalTitleVisible() {
+        PlaywrightAssertions.assertThat(modalTitle.or(modalBody)).isVisible();
     }
 
     public boolean isConfigurationCopied(String expectedZone, String expectedAuditor) {
@@ -1679,6 +1758,12 @@ public class ScheduleInspectionPage
         return firstRow.locator("input").all().stream()
                 .map(Locator::inputValue)
                 .allMatch(String::isBlank);
+    }
+
+    public void assertTableFieldsCleared() {
+        if (!areTableFieldsCleared()) {
+            throw new AssertionError("Expected table fields to be cleared.");
+        }
     }
 
     public void waitForLoadingToFinish() {
@@ -2904,6 +2989,11 @@ public class ScheduleInspectionPage
         return drawer.count() > 0 && drawer.first().isVisible();
     }
 
+    public void assertDeleteDrawerHidden() {
+        Locator drawer = page.locator(".ant-drawer-content").last();
+        PlaywrightAssertions.assertThat(drawer).isHidden();
+    }
+
     private void waitForEditAuditDrawer()
     {
         visibleEditAuditDrawer().waitFor(new Locator.WaitForOptions()
@@ -3393,6 +3483,10 @@ public void waitForScheduleGrid() {
     rows.first().waitFor(new Locator.WaitForOptions()
             .setState(WaitForSelectorState.VISIBLE));
     page.waitForTimeout(800);
+}
+
+public void assertScheduleGridVisible() {
+    PlaywrightAssertions.assertThat(page.locator("table tbody tr").first()).isVisible();
 }
 }
 

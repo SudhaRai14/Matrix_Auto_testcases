@@ -37,9 +37,7 @@ public class ReAuditTest extends BaseTest {
         LocalDate reAuditDate = parseAuditDate(completedAudit.auditDate()).plusDays(1);
         String reAuditDateText = reAuditDate.format(ISO_DATE_FORMAT);
 
-        Assert.assertTrue(
-                scheduleInspectionPage.isReAuditOptionAvailable(completedAudit),
-                "Re-Audit option should be available for Completed audits.");
+        scheduleInspectionPage.assertReAuditOptionAvailable(completedAudit);
 
         ScheduledAuditRecord reAudit = scheduleInspectionPage.reAuditScheduledAuditDateAndAuditor(
                 completedAudit,
@@ -93,9 +91,7 @@ public class ReAuditTest extends BaseTest {
 
         ScheduledAuditRecord completedAudit = firstAuditWithStatus(COMPLETED_STATUS);
         
-        Assert.assertTrue(
-                scheduleInspectionPage.isReAuditOptionAvailable(completedAudit),
-                "Re-Audit option should be available for Completed audits.");
+        scheduleInspectionPage.assertReAuditOptionAvailable(completedAudit);
 
         String originalAuditDate = completedAudit.auditDate();
         String originalAuditor = completedAudit.auditor();
@@ -154,6 +150,7 @@ public class ReAuditTest extends BaseTest {
         auditPage.openScheduleTab();
         auditPage.selectFirstBuildingFromTopBar();
         scheduleInspectionPage.waitForScheduleGrid();
+        scheduleInspectionPage.assertScheduleGridVisible();
     }
 
     private ScheduledAuditRecord firstAuditWithStatus(String status) {

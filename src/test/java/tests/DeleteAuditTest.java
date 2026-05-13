@@ -34,6 +34,7 @@ public class DeleteAuditTest extends BaseTest {
         auditPage.openScheduleTab();
         auditPage.selectFirstBuildingFromTopBar();
         scheduleInspectionPage.waitForScheduleGrid();
+        scheduleInspectionPage.assertScheduleGridVisible();
 
         // Apply filter
         LocalDate targetDate = LocalDate.parse(TARGET_AUDIT_DATE, UI_AUDIT_DATE_FORMAT);
@@ -58,10 +59,7 @@ public class DeleteAuditTest extends BaseTest {
         scheduleInspectionPage.clickCancelDelete();
 
         // Step 3: Verify drawer closed
-        Assert.assertFalse(
-                scheduleInspectionPage.isDeleteDrawerVisible(),
-                "Delete drawer should be closed after clicking Cancel"
-        );
+        scheduleInspectionPage.assertDeleteDrawerHidden();
 
         // Step 4: Reapply filters (UI resets sometimes)
         scheduleInspectionPage.setScheduleListDateRange(
@@ -94,6 +92,7 @@ public class DeleteAuditTest extends BaseTest {
         auditPage.openScheduleTab();
         auditPage.selectFirstBuildingFromTopBar();
         scheduleInspectionPage.waitForScheduleGrid();
+        scheduleInspectionPage.assertScheduleGridVisible();
 
         LocalDate targetDate = LocalDate.parse(TARGET_AUDIT_DATE, UI_AUDIT_DATE_FORMAT);
         scheduleInspectionPage.setScheduleListDateRange(format(targetDate), format(targetDate));
@@ -115,10 +114,10 @@ public class DeleteAuditTest extends BaseTest {
         "Deleting a scheduled audit should show a deleted successfully message. Feedback="
         + deletedAudit.feedback());
 
-        //Refresh and verify the deleted audit no longer appears in the schedule grid
-        page.waitForTimeout(1000);
+        // Refresh and verify the deleted audit no longer appears in the schedule grid.
         page.reload();
         scheduleInspectionPage.waitForScheduleGrid();
+        scheduleInspectionPage.assertScheduleGridVisible();
 
         scheduleInspectionPage.setScheduleListDateRange(
         format(targetDate), format(targetDate));

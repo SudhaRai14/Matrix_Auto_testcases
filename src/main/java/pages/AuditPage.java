@@ -168,6 +168,10 @@ public class AuditPage {
         return hasVisibleScheduleInspectionButton();
     }
 
+    public void assertScheduleInspectionButtonVisible() {
+        PlaywrightAssertions.assertThat(findVisibleScheduleInspectionButton()).isVisible();
+    }
+
     public void waitForSchedulePageReady() {
         page.waitForLoadState(LoadState.DOMCONTENTLOADED);
         waitForSchedulePage();
