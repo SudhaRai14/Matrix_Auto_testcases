@@ -73,6 +73,10 @@ public class BaseTest {
     public void tearDown() {
         try
         {
+
+        if (page != null) {
+            page.close();
+        }
         if (context != null) {
             context.close();
         }
@@ -81,7 +85,8 @@ public class BaseTest {
         }
         if (playwright != null) {
             playwright.close();
-        }}
+        }
+        }
         catch (Exception ignored) {}
     }
 

@@ -483,27 +483,34 @@ public class ScheduleInspectionPage
 
     private void clickDatePickerOk() {
 
-    Locator okBtn = page.locator(
-            ".ant-picker-ok button, " +                 // Ant picker OK
-            ".ant-picker-footer button:has-text('OK'), " +
-            "button:has-text('OK'):visible"
+    Locator activePicker = page.locator(
+            ".ant-picker-dropdown.ant-picker-dropdown-range:not(.ant-picker-dropdown-hidden), " +
+                    ".ant-picker-dropdown:not(.ant-picker-dropdown-hidden)"
+    ).last();
+
+    activePicker.waitFor(new Locator.WaitForOptions()
+            .setState(WaitForSelectorState.VISIBLE)
+            .setTimeout(5000));
+
+    Locator okBtn = activePicker.locator(
+            ".ant-picker-ok button:visible, " +
+                    ".ant-picker-footer button:has-text('OK'):visible, " +
+                    "button:has-text('OK'):visible"
     ).last();
 
     okBtn.waitFor(new Locator.WaitForOptions()
             .setState(WaitForSelectorState.VISIBLE)
             .setTimeout(5000));
-
     okBtn.scrollIntoViewIfNeeded();
 
     page.waitForTimeout(200); // allow animation
 
-    okBtn.click();
+    try {
+        okBtn.click(new Locator.ClickOptions().setForce(true));
+    } catch (RuntimeException ex) {
+        okBtn.evaluate("element => element.click()");
+    }
 
-     Locator activePicker = page.locator(
-            ".ant-picker-dropdown.ant-picker-dropdown-range:not(.ant-picker-dropdown-hidden)"
-    );
-
-    // 🔥 VERY IMPORTANT: wait for picker to close
     activePicker.waitFor(new Locator.WaitForOptions()
             .setState(WaitForSelectorState.HIDDEN)
             .setTimeout(5000));
@@ -672,6 +679,40 @@ public class ScheduleInspectionPage
         return findScheduledAuditAcrossPages(template, building, level, zone, auditDate, auditor).isPresent();
     }
 
+    public Optional<ScheduledAuditGridRecord> findScheduledAuditGridRecordAcrossPages(String template,
+                                                                                     String building,
+                                                                                     String level,
+                                                                                     String zone,
+                                                                                     String auditDate,
+                                                                                     String auditor)
+    {
+        goToFirstSchedulePage();
+        Set<String> visitedPages = new LinkedHashSet<>();
+
+        while (true) {
+            waitForScheduleListToRefresh();
+            String pageSignature = currentSchedulePageSignature();
+            if (!visitedPages.add(pageSignature)) {
+                return Optional.empty();
+            }
+
+            Optional<ScheduledAuditGridRecord> record = findScheduledAuditGridRecordOnCurrentPage(
+                    template,
+                    building,
+                    level,
+                    zone,
+                    auditDate,
+                    auditor);
+            if (record.isPresent()) {
+                return record;
+            }
+
+            if (!goToNextSchedulePage()) {
+                return Optional.empty();
+            }
+        }
+    }
+
     public Optional<ScheduledAuditRecord> findFirstScheduledAuditWithStatusAcrossPages(String status)
     {
         goToFirstSchedulePage();
@@ -724,6 +765,43 @@ public class ScheduleInspectionPage
 
         clickSaveEditAudit();
         String feedback = captureEditAuditFeedback();
+        waitForScheduleListToRefresh();
+        waitForLoadingToFinish();
+
+        return new ScheduledAuditRecord(
+                record.template(),
+                record.building(),
+                record.level(),
+                record.zone(),
+                updatedAuditor,
+                newAuditDate == null || newAuditDate.isBlank() ? record.auditDate() : newAuditDate,
+                feedback);
+    }
+
+    public ScheduledAuditRecord reAuditScheduledAuditDateAndAuditor(ScheduledAuditRecord record,
+                                                                    String newAuditDate,
+                                                                    String preferredAuditor)
+    {
+        openReAuditDrawer(record);
+
+        if (newAuditDate != null && !newAuditDate.isBlank()) {
+            fillEditAuditDate(newAuditDate);
+        }
+
+        String updatedAuditor = record.auditor();
+        if (preferredAuditor != null && !preferredAuditor.isBlank()) {
+            fillEditAuditAuditor(preferredAuditor);
+            updatedAuditor = preferredAuditor;
+        } else {
+            updatedAuditor = fillEditAuditWithAnyDifferentAuditor(record.auditor());
+        }
+
+        fillReAuditReason(System.getProperty("matrix.reaudit.reason",
+                System.getenv().getOrDefault("MATRIX_REAUDIT_REASON", "Automation Re-Audit")));
+
+        clickSaveEditAudit();
+        String feedback = captureEditAuditFeedback();
+        closeVisibleAuditDrawerIfPresent();
         waitForScheduleListToRefresh();
         waitForLoadingToFinish();
 
@@ -799,6 +877,26 @@ public class ScheduleInspectionPage
 
         return visible;
     }
+
+    public boolean isReAuditOptionAvailable(
+        ScheduledAuditRecord audit) {
+
+        clickScheduledAuditActions(
+                audit.template(),
+                audit.building(),
+                audit.level(),
+                audit.zone(),
+                audit.auditDate(),
+                audit.auditor(),
+                false);
+
+        boolean visible = isVisible(visibleReAuditMenuItem());
+
+        page.keyboard().press("Escape");
+
+        return visible;
+    }
+    
     public Locator findScheduledAuditRowAcrossPages(
             String template,
             String building,
@@ -947,6 +1045,57 @@ public class ScheduleInspectionPage
         return Optional.empty();
     }
 
+    private Optional<ScheduledAuditGridRecord> findScheduledAuditGridRecordOnCurrentPage(String template,
+                                                                                        String building,
+                                                                                        String level,
+                                                                                        String zone,
+                                                                                        String auditDate,
+                                                                                        String auditor)
+    {
+        int templateColumnIndex = getSchedulePageColumnIndex("Template");
+        int buildingColumnIndex = getSchedulePageColumnIndex("Building");
+        int levelColumnIndex = getSchedulePageColumnIndex("Level");
+        int zoneColumnIndex = getSchedulePageColumnIndex("Zone");
+        int auditorColumnIndex = getSchedulePageColumnIndex("Assigned To");
+        int auditDateColumnIndex = getSchedulePageColumnIndex("Audit Date");
+        int statusColumnIndex = getSchedulePageColumnIndex("Status");
+        Locator rows = page.locator("main tbody tr:not(.ant-table-placeholder)");
+        int rowCount = rows.count();
+
+        for (int index = 0; index < rowCount; index++) {
+            Locator row = rows.nth(index);
+            if (!row.isVisible()) {
+                continue;
+            }
+
+            String actualTemplate = cellText(row, templateColumnIndex);
+            String actualBuilding = cellText(row, buildingColumnIndex);
+            String actualLevel = cellText(row, levelColumnIndex);
+            String actualZone = cellText(row, zoneColumnIndex);
+            String actualAuditor = cellText(row, auditorColumnIndex);
+            String actualAuditDate = cellText(row, auditDateColumnIndex);
+            String actualStatus = cellText(row, statusColumnIndex);
+
+            if (actualTemplate.equalsIgnoreCase(template)
+                    && actualBuilding.equalsIgnoreCase(building)
+                    && actualLevel.equalsIgnoreCase(level)
+                    && actualZone.equalsIgnoreCase(zone)
+                    && dateValuesMatch(auditDate, actualAuditDate)
+                    && actualAuditor.equalsIgnoreCase(auditor)) {
+                return Optional.of(new ScheduledAuditGridRecord(
+                        actualTemplate,
+                        actualBuilding,
+                        actualLevel,
+                        actualZone,
+                        actualAuditor,
+                        actualAuditDate,
+                        actualStatus));
+            }
+        }
+
+        return Optional.empty();
+    }
+
     private Optional<ScheduledAuditRecord> findFirstScheduledAuditWithStatusOnCurrentPage(String status)
     {
         int templateColumnIndex = getSchedulePageColumnIndex("Template");
@@ -1023,6 +1172,19 @@ public class ScheduleInspectionPage
         waitForEditAuditDrawer();
     }
 
+    public void openReAuditDrawer(ScheduledAuditRecord audit) {
+        clickScheduledAuditActions(
+                audit.template(),
+                audit.building(),
+                audit.level(),
+                audit.zone(),
+                audit.auditDate(),
+                audit.auditor(),
+                false);
+        clickReAuditMenuItem();
+        waitForEditAuditDrawer();
+    }
+
     public void updateAuditDate(String date) {
         fillEditAuditDate(date);
     }
@@ -1052,6 +1214,33 @@ public class ScheduleInspectionPage
                 new Locator.WaitForOptions()
                         .setState(WaitForSelectorState.HIDDEN)
                         .setTimeout(DEFAULT_TIMEOUT_MS));
+    }
+
+    private void closeVisibleAuditDrawerIfPresent() {
+        Locator drawer = page.locator(".ant-drawer:visible").last();
+        if (!isVisible(drawer)) {
+            return;
+        }
+
+        Locator closeButton = drawer.locator(".ant-drawer-close:visible, button[aria-label='Close']:visible").first();
+        if (isVisible(closeButton)) {
+            try {
+                closeButton.click(new Locator.ClickOptions().setForce(true).setTimeout(3000));
+            } catch (RuntimeException ex) {
+                closeButton.evaluate("element => element.click()");
+            }
+        } else {
+            page.keyboard().press("Escape");
+        }
+
+        try {
+            drawer.waitFor(new Locator.WaitForOptions()
+                    .setState(WaitForSelectorState.HIDDEN)
+                    .setTimeout(5000));
+        } catch (RuntimeException ignored) {
+            page.keyboard().press("Escape");
+            page.waitForTimeout(500);
+        }
     }
 
     public void waitForScheduledEvents(String zone, String auditor, int expectedCount)
@@ -2560,6 +2749,13 @@ public class ScheduleInspectionPage
         editAudit.click(new Locator.ClickOptions().setForce(true));
     }
 
+    private void clickReAuditMenuItem()
+    {
+        Locator reAudit = visibleReAuditMenuItem();
+        reAudit.waitFor(new Locator.WaitForOptions().setTimeout(DEFAULT_TIMEOUT_MS));
+        reAudit.click(new Locator.ClickOptions().setForce(true));
+    }
+
     private void waitForDeleteConfirmationModal()
     {
         visibleDeleteConfirmationButton().waitFor(new Locator.WaitForOptions()
@@ -2628,6 +2824,20 @@ public class ScheduleInspectionPage
                         ".ant-dropdown-menu:visible .ant-dropdown-menu-title-content:text-is('Edit Audit'), " +
                         ".ant-dropdown:visible .ant-dropdown-menu-item:has-text('Edit Audit'), " +
                         "[role='menu']:visible :text-is('Edit Audit')")
+                .first();
+    }
+
+    private Locator visibleReAuditMenuItem()
+    {
+        return page.locator(
+                ".ant-dropdown:not(.ant-dropdown-hidden):visible .ant-dropdown-menu-title-content:text-is('Re-Audit'), " +
+                        ".ant-dropdown:not(.ant-dropdown-hidden):visible .ant-dropdown-menu-title-content:text-is('Re Audit'), " +
+                        ".ant-dropdown-menu:visible .ant-dropdown-menu-title-content:text-is('Re-Audit'), " +
+                        ".ant-dropdown-menu:visible .ant-dropdown-menu-title-content:text-is('Re Audit'), " +
+                        ".ant-dropdown:visible .ant-dropdown-menu-item:has-text('Re-Audit'), " +
+                        ".ant-dropdown:visible .ant-dropdown-menu-item:has-text('Re Audit'), " +
+                        "[role='menu']:visible :text-is('Re-Audit'), " +
+                        "[role='menu']:visible :text-is('Re Audit')")
                 .first();
     }
 
@@ -2798,10 +3008,40 @@ public class ScheduleInspectionPage
         throw new IllegalStateException("Unable to locate auditor selector in the Edit Audit drawer.");
     }
 
+    private void fillReAuditReason(String reason)
+    {
+        if (reason == null || reason.isBlank()) {
+            return;
+        }
+
+        Locator drawer = visibleEditAuditDrawer();
+        Locator reasonControl = drawer.locator("textarea:visible").first();
+
+        if (!isVisible(reasonControl)) {
+            try {
+                Locator field = findFieldContainerInRoot(drawer, "Reason");
+                reasonControl = field.locator("textarea:visible, input:visible").last();
+            } catch (RuntimeException ignored) {
+                reasonControl = drawer.locator("input:visible, textarea:visible").last();
+            }
+        }
+
+        if (!isVisible(reasonControl)) {
+            throw new IllegalStateException("Unable to locate Reason field in the Re-Audit drawer.");
+        }
+
+        reasonControl.scrollIntoViewIfNeeded();
+        reasonControl.fill(reason);
+        reasonControl.press("Tab");
+    }
+
     private void clickSaveEditAudit()
     {
         Locator saveButton = page.locator(
                 ".ant-drawer:visible button:has-text('Save'), " +
+                        ".ant-drawer:visible button:has-text('Schedule'), " +
+                        ".ant-drawer:visible button:has-text('Re-Audit'), " +
+                        ".ant-drawer:visible button:has-text('Re Audit'), " +
                         ".ant-drawer:visible button:has-text('Update'), " +
                         ".ant-drawer:visible button:has-text('Submit'), " +
                         ".ant-drawer:visible .ant-drawer-footer button.ant-btn-primary:visible, " +
@@ -3088,6 +3328,15 @@ public class ScheduleInspectionPage
                                        String auditor,
                                        String auditDate,
                                        String feedback) {
+    }
+
+    public record ScheduledAuditGridRecord(String template,
+                                           String building,
+                                           String level,
+                                           String zone,
+                                           String auditor,
+                                           String auditDate,
+                                           String status) {
     }
     
     public enum RecurrenceMonth {
