@@ -1238,6 +1238,51 @@ public class ScheduleInspectionPage
         waitForEditAuditDrawer();
     }
 
+    public void openFirstAuditDetailsDrawer() {
+        waitForScheduleGrid();
+        Locator firstRow = page.locator("main tbody tr:not(.ant-table-placeholder)").first();
+        PlaywrightAssertions.assertThat(firstRow).isVisible();
+        firstRow.scrollIntoViewIfNeeded();
+        firstRow.hover();
+
+        Locator menuButton = actionMenuButtonForRow(firstRow);
+        PlaywrightAssertions.assertThat(menuButton).isVisible();
+        menuButton.click(new Locator.ClickOptions().setForce(true));
+
+        waitForAuditActionMenu();
+        clickAuditDetailsMenuItem();
+        waitForAuditDetailsDrawer();
+    }
+
+    public void assertAuditDetailsDrawerVisible() {
+        PlaywrightAssertions.assertThat(visibleAuditDetailsDrawer()).isVisible();
+    }
+
+    public void assertAuditDetailsTabsVisible() {
+        PlaywrightAssertions.assertThat(visibleAuditDetailsDrawer().getByText("Audit Details",
+                new Locator.GetByTextOptions().setExact(true))).isVisible();
+        PlaywrightAssertions.assertThat(auditDetailsTab("Details")).isVisible();
+        PlaywrightAssertions.assertThat(auditDetailsTab("Activity log")).isVisible();
+    }
+
+    public void switchAuditDetailsTab(String tabName) {
+        Locator tab = auditDetailsTab(tabName);
+        PlaywrightAssertions.assertThat(tab).isVisible();
+        tab.click();
+        PlaywrightAssertions.assertThat(tab).isVisible();
+    }
+
+    public void closeAuditDetailsDrawer() {
+        Locator drawer = visibleAuditDetailsDrawer();
+        Locator closeButton = drawer.locator(".ant-drawer-close:visible, button[aria-label='Close']:visible").first();
+        if (closeButton.count() > 0 && closeButton.isVisible()) {
+            closeButton.click();
+        } else {
+            page.locator(".ant-drawer-mask:visible").last().click();
+        }
+        PlaywrightAssertions.assertThat(drawer).isHidden();
+    }
+
     public void updateAuditDate(String date) {
         fillEditAuditDate(date);
     }
@@ -1381,21 +1426,6 @@ public class ScheduleInspectionPage
         typeSelect.click(new Locator.ClickOptions().setForce(true));
         findVisibleDropdownOptionByText(label).click(new Locator.ClickOptions().setForce(true));
     }
-
-    // private void configureMonthlyRecurrence(Locator popup, FrequencyConfig config) {
-    //     if (config.monthlyMode == MonthlyMode.DATES) {
-    //         clickTextChoice(popup, "On the Dates");
-    //         for (Integer dayOfMonth : config.monthlyDates) {
-    //             clickTextChoice(popup, String.valueOf(dayOfMonth));
-    //         }
-    //         return;
-    //     }
-
-    //     clickTextChoice(popup, "On the Days");
-    //     selectPopupDropdownValue(popup, config.monthlyWeekOrder);
-    //     selectPopupDropdownValue(popup, config.monthlyDayName);
-    // }
-
    
 
     private void setEveryValue(Locator popup, int every) {
@@ -2741,18 +2771,7 @@ public class ScheduleInspectionPage
                     auditDate,
                     auditor);
             if (row.isPresent()) {
-                int actionsColumnIndex = getSchedulePageColumnIndex("Actions");
-                Locator actionsCell = row.get().locator("td").nth(actionsColumnIndex);
-                // Locator menuButton = actionsCell.locator(
-                //         ".ant-dropdown-trigger:visible, [aria-label='ellipsis']:visible, button:visible")
-                //         .first();
-
-                Locator menuButton = actionsCell.locator(
-                        ".ant-dropdown-trigger, " +
-                        ".ant-btn-icon-only, " +
-                        "button, " +
-                        "[role='button']")
-                        .first();
+                Locator menuButton = actionMenuButtonForRow(row.get());
                 menuButton.waitFor(new Locator.WaitForOptions()
                         .setState(WaitForSelectorState.VISIBLE)
                         .setTimeout(DEFAULT_TIMEOUT_MS));
@@ -2841,6 +2860,15 @@ public class ScheduleInspectionPage
         reAudit.click(new Locator.ClickOptions().setForce(true));
     }
 
+    private void clickAuditDetailsMenuItem()
+    {
+        Locator auditDetails = visibleAuditDetailsMenuItem();
+        auditDetails.waitFor(new Locator.WaitForOptions()
+                .setState(WaitForSelectorState.VISIBLE)
+                .setTimeout(DEFAULT_TIMEOUT_MS));
+        auditDetails.click(new Locator.ClickOptions().setForce(true));
+    }
+
     private void waitForDeleteConfirmationModal()
     {
         visibleDeleteConfirmationButton().waitFor(new Locator.WaitForOptions()
@@ -2926,6 +2954,109 @@ public class ScheduleInspectionPage
                 .first();
     }
 
+    private Locator visibleAuditDetailsMenuItem()
+    {
+        return page.locator(
+                ".ant-dropdown:not(.ant-dropdown-hidden):visible .ant-dropdown-menu-title-content:text-is('Audit details'), " +
+                        ".ant-dropdown:not(.ant-dropdown-hidden):visible .ant-dropdown-menu-title-content:text-is('Audit Details'), " +
+                        ".ant-dropdown-menu:visible .ant-dropdown-menu-title-content:text-is('Audit details'), " +
+                        ".ant-dropdown-menu:visible .ant-dropdown-menu-title-content:text-is('Audit Details'), " +
+                        ".ant-dropdown:visible .ant-dropdown-menu-item:has-text('Audit details'), " +
+                        ".ant-dropdown:visible .ant-dropdown-menu-item:has-text('Audit Details'), " +
+                        "[role='menu']:visible :text-is('Audit details'), " +
+                        "[role='menu']:visible :text-is('Audit Details')")
+                .first();
+    }
+
+    private Locator visibleAuditDetailsDrawer()
+    {
+        return page.locator(
+                ".ant-drawer-content:visible:has-text('Audit Details'), " +
+                        "[role='dialog']:visible:has-text('Audit Details')")
+                .last();
+    }
+
+    private void waitForAuditDetailsDrawer()
+    {
+        visibleAuditDetailsDrawer().waitFor(new Locator.WaitForOptions()
+                .setState(WaitForSelectorState.VISIBLE)
+                .setTimeout(DEFAULT_TIMEOUT_MS));
+    }
+
+    private Locator auditDetailsTab(String tabName)
+    {
+        Locator drawer = visibleAuditDetailsDrawer();
+        String token = tabName.trim().split("\\s+")[0];
+        Locator candidates = drawer.locator("[role='tab'], .ant-tabs-tab, .ant-tabs-tab-btn")
+                .filter(new Locator.FilterOptions().setHasText(token));
+
+        long start = System.currentTimeMillis();
+        while (System.currentTimeMillis() - start < DEFAULT_TIMEOUT_MS) {
+            int count = candidates.count();
+            for (int index = 0; index < count; index++) {
+                Locator candidate = candidates.nth(index);
+                if (candidate.isVisible() && containsWords(candidate.innerText(), tabName)) {
+                    return candidate;
+                }
+            }
+            page.waitForTimeout(250);
+        }
+
+        throw new IllegalStateException("Unable to find Audit Details tab: " + tabName);
+    }
+
+    private boolean containsWords(String actualText, String expectedText)
+    {
+        String normalizedActual = actualText.toLowerCase(Locale.ENGLISH);
+        for (String word : expectedText.toLowerCase(Locale.ENGLISH).split("\\s+")) {
+            if (!normalizedActual.contains(word)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private Locator actionMenuButtonForRow(Locator row)
+    {
+        Locator actionsCell = resolveActionsCell(row);
+        Locator candidates = actionsCell.locator(
+                ".ant-dropdown-trigger, " +
+                        ".ant-btn-icon-only, " +
+                        "button, " +
+                        "[role='button'], " +
+                        "[aria-label*='more' i], " +
+                        "[aria-label*='ellipsis' i]");
+
+        long start = System.currentTimeMillis();
+        while (System.currentTimeMillis() - start < DEFAULT_TIMEOUT_MS) {
+            int count = candidates.count();
+            for (int index = 0; index < count; index++) {
+                Locator candidate = candidates.nth(index);
+                if (candidate.isVisible()) {
+                    return candidate;
+                }
+            }
+            page.waitForTimeout(250);
+        }
+
+        throw new IllegalStateException("Unable to locate visible actions menu button for row: " + row.innerText());
+    }
+
+    private Locator resolveActionsCell(Locator row)
+    {
+        try {
+            int actionsColumnIndex = getSchedulePageColumnIndex("Actions");
+            Locator actionsCell = row.locator("td").nth(actionsColumnIndex);
+            if (actionsCell.count() > 0) {
+                return actionsCell;
+            }
+        } catch (RuntimeException ignored) {
+            // Fall back to the right-most cell when the grid does not expose an Actions header.
+        }
+
+        return row.locator("td").last();
+    }
+
     private Locator visibleDeleteConfirmationButton()
     {
         return page.locator(
@@ -2937,6 +3068,7 @@ public class ScheduleInspectionPage
                         "[role='dialog']:visible button:has-text('Delete')")
                 .last();
     }
+
 
     public String captureDeleteSuccessBanner() {
 
