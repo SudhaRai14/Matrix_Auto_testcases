@@ -1254,6 +1254,40 @@ public class ScheduleInspectionPage
         waitForAuditDetailsDrawer();
     }
 
+    public Page openFirstViewReportPage() {
+        waitForScheduleGrid();
+        Locator firstRow = page.locator("main tbody tr:not(.ant-table-placeholder)").first();
+        PlaywrightAssertions.assertThat(firstRow).isVisible();
+        firstRow.scrollIntoViewIfNeeded();
+        firstRow.hover();
+
+        Locator menuButton = actionMenuButtonForRow(firstRow);
+        PlaywrightAssertions.assertThat(menuButton).isVisible();
+        menuButton.click(new Locator.ClickOptions().setForce(true));
+
+        waitForAuditActionMenu();
+        return page.waitForPopup(this::clickViewReportMenuItem);
+    }
+
+    public void assertReportPageLoaded(Page reportPage) {
+        reportPage.waitForLoadState(LoadState.DOMCONTENTLOADED);
+        PlaywrightAssertions.assertThat(reportPage).hasURL(Pattern.compile(".*report.*", Pattern.CASE_INSENSITIVE));
+        PlaywrightAssertions.assertThat(reportPage.locator("#root")).not().hasText(Pattern.compile("^\\s*$"));
+    }
+
+    public void assertReportSummaryVisible(Page reportPage) {
+        Locator root = reportPage.locator("#root");
+        PlaywrightAssertions.assertThat(root).containsText(Pattern.compile("Inspected by|Auditor|Audit", Pattern.CASE_INSENSITIVE));
+        PlaywrightAssertions.assertThat(root).containsText(Pattern.compile("Achieved Score|Acheived Score|Score|Points", Pattern.CASE_INSENSITIVE));
+        PlaywrightAssertions.assertThat(root).containsText(Pattern.compile("Questionnaire|Failed Items|Current status", Pattern.CASE_INSENSITIVE));
+        PlaywrightAssertions.assertThat(reportPage.locator(".ant-card, .ant-collapse, table, [class*='report']").first()).isVisible();
+    }
+
+    public void assertReportReadOnly(Page reportPage) {
+        PlaywrightAssertions.assertThat(reportPage.getByRole(AriaRole.BUTTON,
+                new Page.GetByRoleOptions().setName(Pattern.compile("^save$", Pattern.CASE_INSENSITIVE)))).not().isVisible();
+    }
+
     public void assertAuditDetailsDrawerVisible() {
         PlaywrightAssertions.assertThat(visibleAuditDetailsDrawer()).isVisible();
     }
@@ -2869,6 +2903,15 @@ public class ScheduleInspectionPage
         auditDetails.click(new Locator.ClickOptions().setForce(true));
     }
 
+    private void clickViewReportMenuItem()
+    {
+        Locator viewReport = visibleViewReportMenuItem();
+        viewReport.waitFor(new Locator.WaitForOptions()
+                .setState(WaitForSelectorState.VISIBLE)
+                .setTimeout(DEFAULT_TIMEOUT_MS));
+        viewReport.click(new Locator.ClickOptions().setForce(true));
+    }
+
     private void waitForDeleteConfirmationModal()
     {
         visibleDeleteConfirmationButton().waitFor(new Locator.WaitForOptions()
@@ -2965,6 +3008,20 @@ public class ScheduleInspectionPage
                         ".ant-dropdown:visible .ant-dropdown-menu-item:has-text('Audit Details'), " +
                         "[role='menu']:visible :text-is('Audit details'), " +
                         "[role='menu']:visible :text-is('Audit Details')")
+                .first();
+    }
+
+    private Locator visibleViewReportMenuItem()
+    {
+        return page.locator(
+                ".ant-dropdown:not(.ant-dropdown-hidden):visible .ant-dropdown-menu-title-content:text-is('View Report'), " +
+                        ".ant-dropdown:not(.ant-dropdown-hidden):visible .ant-dropdown-menu-title-content:text-is('View report'), " +
+                        ".ant-dropdown-menu:visible .ant-dropdown-menu-title-content:text-is('View Report'), " +
+                        ".ant-dropdown-menu:visible .ant-dropdown-menu-title-content:text-is('View report'), " +
+                        ".ant-dropdown:visible .ant-dropdown-menu-item:has-text('View Report'), " +
+                        ".ant-dropdown:visible .ant-dropdown-menu-item:has-text('View report'), " +
+                        "[role='menu']:visible :text-is('View Report'), " +
+                        "[role='menu']:visible :text-is('View report')")
                 .first();
     }
 
