@@ -1,0 +1,52 @@
+[
+  {
+    "templateName": "Pest Control Audit",
+    "description": "Audit template for pest control inspection",
+    "questions": [
+      {
+        "questionType": "MCQ",
+        "question": "Any pest activity observed?",
+        "options": ["Yes", "No"],
+        "mandatory": true
+      },
+      {
+        "questionType": "Slider",
+        "question": "Rate cleanliness",
+        "min": 1,
+        "max": 10,
+        "mandatory": true
+      },
+      {
+        "questionType": "Checkbox",
+        "question": "Select pest types",
+        "options": ["Cockroach", "Rodent", "Ant"],
+        "mandatory": true
+      },
+      {
+        "questionType": "Number",
+        "question": "Number of issues found",
+        "mandatory": false
+      },
+      {
+        "questionType": "Date",
+        "question": "Inspection Date",
+        "mandatory": true
+      },
+      {
+        "questionType": "Datetime",
+        "question": "Inspection Datetime",
+        "mandatory": true
+      },
+      {
+        "questionType": "Signature",
+        "question": "Inspector Signature",
+        "mandatory": true
+      },
+      {
+        "questionType": "Text",
+        "question": "Additional comments",
+        "mandatory": false
+      }
+    ]
+  }
+]

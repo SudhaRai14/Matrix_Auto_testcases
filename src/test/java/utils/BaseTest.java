@@ -6,12 +6,14 @@ import com.microsoft.playwright.ConsoleMessage;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.PlaywrightException;
+import com.microsoft.playwright.Response;
 import com.microsoft.playwright.options.AriaRole;
 import com.microsoft.playwright.options.LoadState;
 import com.microsoft.playwright.options.ScreenshotType;
 import com.microsoft.playwright.options.WaitForSelectorState;
 import com.microsoft.playwright.Locator;
 import org.testng.Assert;
+import org.testng.ITestResult;
 import org.testng.SkipException;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
@@ -70,11 +72,18 @@ public class BaseTest {
     }
 
     @AfterMethod(alwaysRun = true)
-    public void tearDown() {
+    public void tearDown(ITestResult result) {
         try
         {
 
         if (page != null) {
+            if (!result.isSuccess() && screenshotDirectory != null) {
+                try {
+                    captureStep("failure-" + result.getMethod().getMethodName());
+                } catch (Exception ex) {
+                    System.out.println("Unable to capture failure screenshot: " + ex.getMessage());
+                }
+            }
             page.close();
         }
         if (context != null) {
@@ -176,10 +185,18 @@ public class BaseTest {
         page.onPageError(error -> browserDiagnostics.add("PAGEERROR :: " + error));
         page.onRequestFailed(request -> browserDiagnostics.add(
                 "REQUESTFAILED :: " + request.method() + " " + request.url() + " :: " + request.failure()));
+        page.onResponse(this::recordHttpErrorResponse);
     }
 
     private void recordConsoleMessage(ConsoleMessage message) {
         browserDiagnostics.add("CONSOLE " + message.type() + " :: " + message.text());
+    }
+
+    private void recordHttpErrorResponse(Response response) {
+        int status = response.status();
+        if (status >= 400) {
+            browserDiagnostics.add("HTTP " + status + " :: " + response.url());
+        }
     }
 
     private void navigateWithRetry(String url) {
