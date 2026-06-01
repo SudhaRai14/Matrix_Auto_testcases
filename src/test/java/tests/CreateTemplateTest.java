@@ -27,24 +27,13 @@ public class CreateTemplateTest extends BaseTest {
 
         TemplatePage templatePage = new TemplatePage(page);
         templatePage.openTemplateModule();
-        templatePage.clickCreateTemplate();
-        System.out.println("Creating template with name: " + templateName);
-        templatePage.enterTemplateName(templateName);
-        templatePage.enterTemplateDescription(templateData.description);
-        templatePage.selectAnyCategory();
-        System.out.println("Configuring questions: " + templateData.questions.size());
-        templatePage.configureInlineQuestions(templateData.questions);
-        for (QuestionData question : templateData.questions) {
-            templatePage.verifyQuestionAdded(question.question);
-        }
+        createTemplate(templatePage, templateData, templateName);
         
         System.out.println(page.locator("body").innerText());
         page.screenshot(
             new Page.ScreenshotOptions()
         .setPath(Paths.get(
             "before-save-template.png")));
-        templatePage.saveTemplate();
-        System.out.println("Template saved.");
         Locator validationError = page.locator(
         ".ant-form-item-explain-error:visible");
 
@@ -52,6 +41,23 @@ public class CreateTemplateTest extends BaseTest {
 
                 throw new IllegalStateException("Template validation failed: "+ validationError.first().innerText());
         }
+    }
+
+    public static void createTemplate(TemplatePage templatePage, TemplateData templateData, String templateName) {
+        templatePage.clickCreateTemplate();
+        System.out.println("Creating template with name: " + templateName);
+        templatePage.enterTemplateName(templateName);
+        templatePage.enterTemplateDescription(templateData.description);
+        templatePage.selectAnyCategory();
+        System.out.println("Configuring questions: " + templateData.questions.size());
+        templatePage.configureInlineQuestions(templateData.questions);
+        templatePage.enterTemplateName(templateName);
+        templatePage.enterTemplateDescription(templateData.description);
+        for (QuestionData question : templateData.questions) {
+            templatePage.verifyQuestionAdded(question.question);
+        }
+        templatePage.saveTemplate();
+        System.out.println("Template saved.");
     }
 
     @DataProvider(name = "templateData")

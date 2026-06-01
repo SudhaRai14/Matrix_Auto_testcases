@@ -7,6 +7,7 @@ import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.PlaywrightException;
 import com.microsoft.playwright.Response;
+import com.microsoft.playwright.Tracing;
 import com.microsoft.playwright.options.AriaRole;
 import com.microsoft.playwright.options.LoadState;
 import com.microsoft.playwright.options.ScreenshotType;
@@ -54,6 +55,10 @@ public class BaseTest {
         browser = PlaywrightFactory.launchBrowser(playwright);
         System.out.println("Setup: creating context");
         context = PlaywrightFactory.createContext(browser);
+        context.tracing().start(new Tracing.StartOptions()
+                .setScreenshots(true)
+                .setSnapshots(true)
+                .setSources(true));
         System.out.println("Setup: creating page");
         page = PlaywrightFactory.createPage(context);
         registerPageDiagnostics();
@@ -87,6 +92,7 @@ public class BaseTest {
             page.close();
         }
         if (context != null) {
+            stopTracing(result);
             context.close();
         }
         if (browser != null) {
@@ -97,6 +103,22 @@ public class BaseTest {
         }
         }
         catch (Exception ignored) {}
+    }
+
+    private void stopTracing(ITestResult result) {
+        try {
+            if (result != null && !result.isSuccess() && screenshotDirectory != null) {
+                Path trace = screenshotDirectory.resolve(
+                        SCREENSHOT_STAMP.format(LocalDateTime.now()) + "_trace-"
+                                + result.getMethod().getMethodName() + ".zip");
+                context.tracing().stop(new Tracing.StopOptions().setPath(trace));
+                System.out.println("Trace captured: " + trace.toAbsolutePath());
+            } else {
+                context.tracing().stop();
+            }
+        } catch (Exception ex) {
+            System.out.println("Unable to stop Playwright trace: " + ex.getMessage());
+        }
     }
 
     protected void loginWithValidCredentials() {

@@ -1,0 +1,104 @@
+[
+  {
+    "scenarioName": "edit template and question details",
+    "createTemplateBeforeEdit": true,
+    "seedTemplate": {
+      "templateName": "Edit Template Automation ${stamp}",
+      "description": "Seed template for edit automation",
+      "questions": [
+        {
+          "questionType": "MCQ",
+          "question": "Edit seed MCQ ${stamp}",
+          "options": ["Yes", "No"],
+          "mandatory": true
+        },
+        {
+          "questionType": "Slider",
+          "question": "Edit seed slider ${stamp}",
+          "min": 1,
+          "max": 10,
+          "mandatory": true
+        },
+        {
+          "questionType": "Checkbox",
+          "question": "Edit seed checkbox ${stamp}",
+          "options": ["Pass", "Fail"],
+          "mandatory": false
+        }
+      ]
+    },
+    "newTemplateName": "Edited Template Automation ${stamp}",
+    "newDescription": "Edited template description ${stamp}",
+    "newTargetScore": 85,
+    "sectionTitle": "Edited Main Section ${stamp}",
+    "subSectionTitle": "Edited Sub Section ${stamp}",
+    "questionTextEdit": {
+      "existingQuestion": "Edit seed MCQ ${stamp}",
+      "newQuestion": "Edited MCQ question ${stamp}"
+    },
+    "answerTypeEdit": {
+      "question": "Edit seed checkbox ${stamp}",
+      "newQuestionType": "Number"
+    },
+    "questionToAdd": {
+      "questionType": "Date",
+      "question": "Added date question ${stamp}",
+      "mandatory": true
+    },
+    "sliderEdit": {
+      "question": "Edit seed slider ${stamp}",
+      "min": 2,
+      "max": 8
+    },
+    "mandatoryEdit": {
+      "question": "Edit seed checkbox ${stamp}",
+      "mandatory": true
+    },
+    "scoringEdit": {
+      "question": "Edited MCQ question ${stamp}",
+      "enabled": true,
+      "firstScore": 2
+    },
+    "reorderEdit": {
+      "sourceQuestion": "Added date question ${stamp}",
+      "targetQuestion": "Edited MCQ question ${stamp}"
+    },
+    "expectedTemplateName": "Edited Template Automation ${stamp}",
+    "expectedDescription": "Edited template description ${stamp}",
+    "expectedTargetScore": 85,
+    "expectedQuestions": [
+      "Edited MCQ question ${stamp}",
+      "Edit seed slider ${stamp}",
+      "Edit seed checkbox ${stamp}",
+      "Added date question ${stamp}"
+    ],
+    "absentQuestions": [
+      "Edit seed MCQ ${stamp}"
+    ]
+  },
+  {
+    "scenarioName": "cancel template edit",
+    "createTemplateBeforeEdit": true,
+    "cancelEdit": true,
+    "seedTemplate": {
+      "templateName": "Cancel Edit Template ${stamp}",
+      "description": "Original description before cancel",
+      "questions": [
+        {
+          "questionType": "MCQ",
+          "question": "Cancel seed question ${stamp}",
+          "options": ["Yes", "No"],
+          "mandatory": false
+        }
+      ]
+    },
+    "newTemplateName": "Cancelled Template Name ${stamp}",
+    "newDescription": "This description should not persist",
+    "questionToAdd": {
+      "questionType": "MCQ",
+      "question": "Cancelled added question ${stamp}",
+      "options": ["Yes", "No"],
+      "mandatory": false
+    }
+  }
+]

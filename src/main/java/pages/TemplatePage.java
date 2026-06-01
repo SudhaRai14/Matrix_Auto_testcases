@@ -8,6 +8,8 @@ import java.util.regex.Pattern;
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.options.AriaRole;
+import com.microsoft.playwright.options.LoadState;
+import com.microsoft.playwright.options.WaitForSelectorState;
 
 import models.QuestionData;
 import models.TemplateData;
@@ -50,9 +52,9 @@ public class TemplatePage {
         String org = extractQueryValue(currentUrl, "org", "SMARTCLEANHQ");
         String propertyId = extractQueryValue(currentUrl, "propId", "8cb0777846c64dc0a2d69cc080aaf8c7");
         String accountId = System.getProperty("matrix.account.id",
-                System.getenv().getOrDefault("MATRIX_ACCOUNT_ID", "0fd3e86b6e424bf383a2e02cf1281bec"));
+                System.getenv().getOrDefault("MATRIX_ACCOUNT_ID", "0397f1af95604770a6148231aaf5c6f9"));
         page.navigate(String.format(
-                "https://www.smartclean.io/matrix/auditsv2/v3_9/#/templates/%s/%s/%s",
+                "https://www.smartclean.io/matrix/audits/v48_7/#/templates/%s/%s/%s",
                 org,
                 propertyId,
                 accountId));
@@ -103,7 +105,8 @@ public class TemplatePage {
             String description) {
 
         Locator descriptionInput = page.locator(
-                "textarea[placeholder*='description' i]:visible, " +
+                "#template_templateDescription:visible, " +
+                        "textarea[placeholder*='description' i]:visible, " +
                         "input[placeholder*='description' i]:visible, " +
                         ".ant-drawer-content:visible textarea, " +
                         ".ant-modal-content:visible textarea")
@@ -185,6 +188,13 @@ public class TemplatePage {
     }
 
     private Locator visibleTemplateNameInput() {
+        Locator preferredTemplateInput = page.locator("#template_templateName:visible").first();
+        if (preferredTemplateInput.count() > 0
+                && preferredTemplateInput.isVisible()
+                && preferredTemplateInput.isEnabled()) {
+            return preferredTemplateInput;
+        }
+
         Locator candidates = page.locator(
                 "input[placeholder*='template name' i]:visible, " +
                         "input[placeholder*='template' i]:visible, " +
@@ -355,22 +365,124 @@ public class TemplatePage {
             throw new IllegalArgumentException("Template must contain at least one question.");
         }
 
+        ensureMainSectionExists();
+        expandFirstMainSection();
         configureInitialQuestion(questions.get(0));
         for (int index = 1; index < questions.size(); index++) {
             clickQuestionPlusControl();
             configureQuestionModal(questions.get(index));
         }
 
-        questions.stream()
-                .filter(question -> "text".equalsIgnoreCase(question.questionType))
-                .findFirst()
-                .ifPresent(question -> {
-                    if (page.locator("input[value=\"" + cssAttributeValue(question.question) + "\"], "
-                            + "textarea[value=\"" + cssAttributeValue(question.question) + "\"]").count() == 0) {
-                        clickQuestionPlusControl();
-                        configureQuestionModal(question);
-                    }
-                });
+        normalizeInlineQuestionTexts(questions);
+    }
+
+    private void ensureMainSectionExists() {
+        Locator emptyMainSections = page.getByText(
+                Pattern.compile("No\\s+main\\s+sections", Pattern.CASE_INSENSITIVE))
+                .first();
+        if (emptyMainSections.count() == 0 || !emptyMainSections.isVisible()) {
+            return;
+        }
+
+        Locator mainSectionControl = page.locator("div[style*='cursor']")
+                .filter(new Locator.FilterOptions().setHasText(Pattern.compile("^\\s*Main\\s+Section\\s*$",
+                        Pattern.CASE_INSENSITIVE)))
+                .last();
+        if (mainSectionControl.count() == 0 || !mainSectionControl.isVisible()) {
+            mainSectionControl = page.getByText(Pattern.compile("^\\s*Main\\s+Section\\s*$",
+                    Pattern.CASE_INSENSITIVE)).last();
+        }
+
+        assertThat(mainSectionControl).isVisible();
+        mainSectionControl.click(new Locator.ClickOptions().setForce(true));
+
+        emptyMainSections.waitFor(new Locator.WaitForOptions()
+                .setState(WaitForSelectorState.HIDDEN)
+                .setTimeout(15000));
+    }
+
+    private void expandFirstMainSection() {
+        Locator header = page.locator(".ant-collapse-item:visible .ant-collapse-header").first();
+        if (header.count() == 0 || !header.isVisible()) {
+            return;
+        }
+
+        if (!"true".equals(header.getAttribute("aria-expanded"))) {
+            header.click(new Locator.ClickOptions().setForce(true));
+        }
+
+        fillInlineTitleIfPresent("Type your Main Section title", "Main Section");
+        fillInlineTitleIfPresent("Type your Sub Section title", "Sub Section");
+
+        long start = System.currentTimeMillis();
+        while (System.currentTimeMillis() - start < 10000) {
+            Locator content = page.locator(".ant-collapse-content-active:visible, .ant-collapse-content-box:visible").first();
+            if (content.count() > 0 && content.isVisible()) {
+                return;
+            }
+            page.waitForTimeout(250);
+        }
+    }
+
+    private void fillInlineTitleIfPresent(String placeholderText, String title) {
+        Locator placeholder = page.getByText(
+                Pattern.compile("^\\s*" + Pattern.quote(placeholderText) + "\\s*$", Pattern.CASE_INSENSITIVE))
+                .first();
+        if (placeholder.count() == 0 || !placeholder.isVisible()) {
+            return;
+        }
+
+        Locator edit = placeholder.locator("xpath=ancestor::*[contains(@class,'ant-typography')][1]")
+                .locator("[aria-label='Edit']:visible, [aria-label='edit']:visible")
+                .first();
+        if (edit.count() == 0 || !edit.isVisible()) {
+            edit = placeholder.locator("xpath=following::*[@aria-label='Edit' or @aria-label='edit'][1]");
+        }
+        if (edit.count() == 0 || !edit.isVisible()) {
+            return;
+        }
+
+        edit.click(new Locator.ClickOptions().setForce(true));
+
+        Locator input = page.locator(
+                ".ant-typography-edit-content input:visible, " +
+                        ".ant-typography-edit-content textarea:visible, " +
+                        "input:visible:not(#template_templateName):not(#template_targetScore), " +
+                        "textarea:visible:not(#template_templateDescription)")
+                .last();
+        if (input.count() > 0 && input.isVisible() && input.isEnabled()) {
+            input.fill(title);
+            input.press("Enter");
+            page.waitForTimeout(300);
+        }
+    }
+
+    private void normalizeInlineQuestionTexts(List<QuestionData> questions) {
+        Locator questionInputs = page.locator(
+                "form input.ant-input:visible:not(#template_templateName), " +
+                        "form textarea.ant-input:visible:not(#template_templateDescription)");
+
+        int questionIndex = 0;
+        for (int inputIndex = 0; inputIndex < questionInputs.count() && questionIndex < questions.size(); inputIndex++) {
+            Locator input = questionInputs.nth(inputIndex);
+            if (!input.isVisible() || !input.isEnabled()) {
+                continue;
+            }
+
+            String id = input.getAttribute("id");
+            if (id != null && id.startsWith("template_")) {
+                continue;
+            }
+
+            input.scrollIntoViewIfNeeded();
+            input.fill(questions.get(questionIndex).question);
+            questionIndex++;
+        }
+
+        if (questionIndex < questions.size()) {
+            throw new AssertionError("Expected " + questions.size() + " question inputs, but only found "
+                    + questionIndex + ". Page text: " + page.locator("body").innerText());
+        }
     }
 
     private void configureLatestInlineQuestion(QuestionData data) {
@@ -426,7 +538,7 @@ public class TemplatePage {
     }
 
     private void selectInlineAnswerFormat(String questionType) {
-        String answerFormat = answerFormatLabel(questionType);
+        String answerFormat = inlineAnswerFormatLabel(questionType);
         if (isInlineAnswerFormatSelected(answerFormat)) {
             return;
         }
@@ -531,6 +643,14 @@ public class TemplatePage {
         };
     }
 
+    private String inlineAnswerFormatLabel(String questionType) {
+        return switch (questionType.toLowerCase()) {
+            case "datetime" -> "Date Time";
+            case "text" -> "Text Answer";
+            default -> answerFormatLabel(questionType);
+        };
+    }
+
     private void configureQuestionModal(QuestionData data) {
         Locator modal = page.locator(".ant-modal-content:visible").last();
         assertThat(modal).isVisible();
@@ -556,13 +676,104 @@ public class TemplatePage {
         Locator modal = page.locator(".ant-modal-content:visible").last();
         Locator answerFormatSelect = modal.locator(".ant-select-selector:visible").last();
         assertThat(answerFormatSelect).isVisible();
-        answerFormatSelect.click(new Locator.ClickOptions().setForce(true));
+        openAnswerFormatDropdown(answerFormatSelect);
 
-        Locator option = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option")
-                .filter(new Locator.FilterOptions().setHasText(answerFormat))
-                .first();
-        assertThat(option).isVisible();
+        Locator option = visibleAnswerFormatOption(answerFormat);
         option.click(new Locator.ClickOptions().setForce(true));
+    }
+
+    private void openAnswerFormatDropdown(Locator answerFormatSelect) {
+        answerFormatSelect.scrollIntoViewIfNeeded();
+        answerFormatSelect.click(new Locator.ClickOptions().setForce(true));
+        if (hasVisibleAnswerFormatOptions()) {
+            return;
+        }
+
+        Locator combobox = answerFormatSelect.locator("input[role='combobox']").first();
+        if (combobox.count() > 0) {
+            combobox.click(new Locator.ClickOptions().setForce(true));
+            if (hasVisibleAnswerFormatOptions()) {
+                return;
+            }
+
+            combobox.press("Enter");
+            if (hasVisibleAnswerFormatOptions()) {
+                return;
+            }
+
+            combobox.press("ArrowDown");
+            if (hasVisibleAnswerFormatOptions()) {
+                return;
+            }
+        }
+
+        answerFormatSelect.evaluate("element => element.click()");
+        if (hasVisibleAnswerFormatOptions()) {
+            return;
+        }
+
+        page.keyboard().press("ArrowDown");
+    }
+
+    private boolean hasVisibleAnswerFormatOptions() {
+        Locator options = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option");
+        for (int index = 0; index < options.count(); index++) {
+            if (options.nth(index).isVisible()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Locator visibleAnswerFormatOption(String answerFormat) {
+        String expected = normalizeAnswerFormat(answerFormat);
+        Locator options = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option");
+
+        long start = System.currentTimeMillis();
+        while (System.currentTimeMillis() - start < 10000) {
+            int count = options.count();
+            for (int index = 0; index < count; index++) {
+                Locator option = options.nth(index);
+                if (!option.isVisible()) {
+                    continue;
+                }
+
+                String text = option.innerText().trim();
+                String title = option.getAttribute("title");
+                if (expected.equals(normalizeAnswerFormat(text))
+                        || expected.equals(normalizeAnswerFormat(title))) {
+                    return option;
+                }
+            }
+            page.waitForTimeout(250);
+        }
+
+        throw new AssertionError("Unable to select answer format '" + answerFormat
+                + "'. Visible options: " + visibleAnswerFormatOptions());
+    }
+
+    private String visibleAnswerFormatOptions() {
+        StringBuilder builder = new StringBuilder();
+        Locator options = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option");
+        int count = options.count();
+        for (int index = 0; index < count; index++) {
+            Locator option = options.nth(index);
+            if (!option.isVisible()) {
+                continue;
+            }
+            if (!builder.isEmpty()) {
+                builder.append(" | ");
+            }
+            builder.append(option.innerText().trim());
+        }
+        return builder.toString();
+    }
+
+    private String normalizeAnswerFormat(String value) {
+        String normalized = value == null ? "" : value.replaceAll("[^A-Za-z0-9]", "").toLowerCase();
+        return normalized.endsWith("responses")
+                ? normalized.substring(0, normalized.length() - 1)
+                : normalized;
     }
 
     private void configureModalAnswerDetails(QuestionData data) {
@@ -955,7 +1166,12 @@ public class TemplatePage {
         String url = page.url();
         return url.contains("/templates/")
                 && !url.endsWith("/create")
-                && !url.contains("/create?");
+                && !url.contains("/create?")
+                && (page.getByText("Template Details").count() > 0
+                        || page.getByRole(
+                                AriaRole.BUTTON,
+                                new Page.GetByRoleOptions().setName(Pattern.compile("^Edit$", Pattern.CASE_INSENSITIVE)))
+                                .count() > 0);
     }
 
     // =========================================================
@@ -1025,6 +1241,7 @@ public class TemplatePage {
 
         while (System.currentTimeMillis() - start < 45000) {
             openCustomTemplatesTab();
+            resetCustomTemplatePaginationToFirstPage();
             searchTemplate(templateName);
 
             if (openVisibleTemplateRow(templateName) || openTemplateRowFromPagedList(templateName)) {
@@ -1038,6 +1255,104 @@ public class TemplatePage {
         throw new AssertionError("Template row was not visible for '" + templateName
                 + "'. Current URL=" + page.url()
                 + ". Page text: " + page.locator("body").innerText(), lastError);
+    }
+
+    public TemplateEditorComponent openTemplateForEdit(String templateName) {
+        if (isOnCustomTemplateDetailPage()) {
+            TemplateEditorComponent editor = new TemplateEditorComponent(page);
+            editor.clickEditIfNeeded();
+            return editor;
+        }
+
+        openCustomTemplatesTab();
+        resetCustomTemplatePaginationToFirstPage();
+        searchTemplate(templateName);
+        Locator row = findTemplateRowAcrossPages(templateName);
+        row.scrollIntoViewIfNeeded();
+        row.hover();
+
+        if (!clickRowActionMenu(row)) {
+            row.getByText(templateName).first().click(new Locator.ClickOptions().setForce(true));
+            page.waitForLoadState(LoadState.DOMCONTENTLOADED);
+            TemplateEditorComponent editor = new TemplateEditorComponent(page);
+            editor.clickEditIfNeeded();
+            editor.waitForEditor();
+            return editor;
+        }
+
+        Locator edit = page.getByText(
+                Pattern.compile("Edit\\s+Template|^Edit$", Pattern.CASE_INSENSITIVE))
+                .last();
+        assertThat(edit).isVisible();
+        edit.click(new Locator.ClickOptions().setForce(true));
+        page.waitForLoadState(LoadState.DOMCONTENTLOADED);
+
+        TemplateEditorComponent editor = new TemplateEditorComponent(page);
+        editor.waitForEditor();
+        return editor;
+    }
+
+    public void reopenTemplate(String templateName) {
+        openTemplateModule();
+        openCustomTemplatesTab();
+        resetCustomTemplatePaginationToFirstPage();
+        searchTemplate(templateName);
+        Locator row = findTemplateRowAcrossPages(templateName);
+        row.scrollIntoViewIfNeeded();
+        row.getByText(templateName).first().click(new Locator.ClickOptions().setForce(true));
+        page.waitForLoadState(LoadState.DOMCONTENTLOADED);
+    }
+
+    public void openCustomTemplateList() {
+        openCustomTemplatesTab();
+    }
+
+    private Locator findTemplateRowAcrossPages(String templateName) {
+        AssertionError lastError = null;
+        for (int pageIndex = 0; pageIndex < 10; pageIndex++) {
+            Locator row = page.locator(".ant-tabs-tabpane-active tbody tr:visible, tbody tr:visible")
+                    .filter(new Locator.FilterOptions().setHasText(templateName))
+                    .first();
+            if (row.count() > 0 && row.isVisible()) {
+                return row;
+            }
+
+            lastError = new AssertionError("Template row was not visible on page " + (pageIndex + 1)
+                    + " for '" + templateName + "'.");
+            Locator nextButton = page.locator(
+                    ".ant-tabs-tabpane-active .ant-pagination-next:not(.ant-pagination-disabled) button, "
+                            + ".ant-pagination-next:not(.ant-pagination-disabled) button")
+                    .first();
+            if (nextButton.count() == 0 || !nextButton.isVisible() || !nextButton.isEnabled()) {
+                break;
+            }
+
+            nextButton.scrollIntoViewIfNeeded();
+            nextButton.click();
+            page.waitForLoadState(LoadState.DOMCONTENTLOADED);
+            page.locator("tbody tr:visible").first().waitFor();
+        }
+
+        throw new AssertionError("Unable to find template row for '" + templateName
+                + "'. Page text: " + page.locator("body").innerText(), lastError);
+    }
+
+    private boolean clickRowActionMenu(Locator row) {
+        Locator action = row.locator("td").last().getByRole(AriaRole.BUTTON).first();
+        if (action.count() == 0 || !action.isVisible()) {
+            action = row.locator("button:visible, [role='button']:visible, "
+                + "span[aria-label='more']:visible, span[aria-label='ellipsis']:visible, "
+                + "span[aria-label='setting']:visible")
+                .last();
+        }
+        if (action.count() == 0 || !action.isVisible()) {
+            return false;
+        }
+
+        action.click(new Locator.ClickOptions().setForce(true));
+        return page.locator(".ant-dropdown:not(.ant-dropdown-hidden):visible, .ant-popover:visible")
+                .first()
+                .count() > 0;
     }
 
     private boolean openTemplateRowFromPagedList(String templateName) {
@@ -1113,15 +1428,26 @@ public class TemplatePage {
 
         Locator searchInput = page.locator(
                 ".ant-tabs-tabpane-active input[placeholder*='Search' i], " +
-                        ".ant-tabs-tabpane-active input[type='search'], " +
-                        "input[placeholder*='Search' i]:visible, " +
-                        "input[type='search']:visible")
+                        "input[placeholder*='Search' i]:visible")
                 .first();
 
         assertThat(searchInput).isVisible();
-        searchInput.fill(templateName);
-        searchInput.press("Enter");
-        page.waitForTimeout(1000);
+        searchInput.scrollIntoViewIfNeeded();
+        searchInput.click(new Locator.ClickOptions().setForce(true));
+        searchInput.fill("");
+        searchInput.type(templateName);
+
+        Locator searchIcon = searchInput.locator("xpath=ancestor::*[contains(@class,'ant-input-affix-wrapper')][1]")
+                .locator("span[aria-label='search']")
+                .first();
+        if (searchIcon.count() > 0 && searchIcon.isVisible()) {
+            searchIcon.click(new Locator.ClickOptions().setForce(true));
+        } else {
+            searchInput.press("Enter");
+        }
+
+        page.waitForLoadState(LoadState.DOMCONTENTLOADED);
+        page.locator(".ant-tabs-tabpane-active table:visible, table:visible").first().waitFor();
     }
 
     private void openCustomTemplatesTab() {
@@ -1147,6 +1473,29 @@ public class TemplatePage {
 
         throw new AssertionError("Custom Templates tab did not become active. Page text: "
                 + page.locator("body").innerText());
+    }
+
+    private void resetCustomTemplatePaginationToFirstPage() {
+        Locator firstPage = page.locator(
+                ".ant-tabs-tabpane-active .ant-pagination-item-1 a, " +
+                        ".ant-tabs-tabpane-active .ant-pagination-item-1, " +
+                        ".ant-pagination-item-1 a, " +
+                        ".ant-pagination-item-1")
+                .first();
+        if (firstPage.count() == 0 || !firstPage.isVisible()) {
+            return;
+        }
+
+        String parentClass = firstPage.locator("xpath=ancestor-or-self::li[contains(@class,'ant-pagination-item')][1]")
+                .getAttribute("class");
+        if (parentClass != null && parentClass.contains("ant-pagination-item-active")) {
+            return;
+        }
+
+        firstPage.scrollIntoViewIfNeeded();
+        firstPage.click(new Locator.ClickOptions().setForce(true));
+        page.waitForLoadState(LoadState.DOMCONTENTLOADED);
+        page.waitForTimeout(500);
     }
 
     private void refreshCustomTemplatesTab() {
