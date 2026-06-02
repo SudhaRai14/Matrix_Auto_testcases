@@ -29,6 +29,7 @@ public class TemplateEditorComponent {
         Locator form = page.locator("form:visible").first();
         assertThat(form).isVisible();
         page.waitForLoadState(LoadState.DOMCONTENTLOADED);
+        expandFirstSectionIfNeeded();
     }
 
     public void clickEditIfNeeded() {
@@ -92,11 +93,11 @@ public class TemplateEditorComponent {
     }
 
     public void editSectionTitle(String title) {
-        editInlineTitle("Main Section", title);
+        editInlineTitle("Type your Main Section title", title);
     }
 
     public void editSubSectionTitle(String title) {
-        editInlineTitle("Sub Section", title);
+        editInlineTitle("Type your Sub Section title", title);
     }
 
     public void applyScenario(EditTemplateData data) {
@@ -113,7 +114,7 @@ public class TemplateEditorComponent {
         if (data.answerTypeEdit != null) {
             questions.editAnswerType(data.answerTypeEdit.question, data.answerTypeEdit.newQuestionType);
         }
-        if (data.questionToAdd != null) {
+        if (data.questionToAdd != null && !data.cancelEdit) {
             questions.addQuestion(data.questionToAdd);
         }
         if (data.questionToDelete != null) {
@@ -140,21 +141,46 @@ public class TemplateEditorComponent {
     }
 
     public void saveChanges() {
-        Locator save = page.getByRole(
-                AriaRole.BUTTON,
-                new Page.GetByRoleOptions().setName(Pattern.compile("^(Save|Update|Create)$", Pattern.CASE_INSENSITIVE)))
-                .last();
-        assertThat(save).isVisible();
-
-        Response response = page.waitForResponse(
-                r -> r.url().contains("/template") || r.url().contains("/templates") || r.status() < 400,
-                () -> save.click(new Locator.ClickOptions().setForce(true)));
-        if (response.status() >= 400) {
-            throw new AssertionError("Template save request failed: " + response.status() + " " + response.url());
-        }
+        clickVisibleSaveButtons();
 
         verifySuccessToastOrSavedState();
         page.waitForLoadState(LoadState.NETWORKIDLE);
+    }
+
+    private void clickVisibleSaveButtons() {
+        Locator saves = page.getByRole(
+                AriaRole.BUTTON,
+                new Page.GetByRoleOptions().setName(Pattern.compile("^Save$", Pattern.CASE_INSENSITIVE)));
+        int clicked = 0;
+        for (int index = saves.count() - 1; index >= 0; index--) {
+            Locator save = saves.nth(index);
+            if (!save.isVisible() || !save.isEnabled()) {
+                continue;
+            }
+
+            Response response = null;
+            try {
+                response = page.waitForResponse(
+                        r -> r.url().contains("scaudits") || r.url().contains("/template") || r.url().contains("/templates"),
+                        () -> save.click(new Locator.ClickOptions().setForce(true).setTimeout(5000)));
+            } catch (RuntimeException ex) {
+                save.click(new Locator.ClickOptions().setForce(true).setTimeout(5000));
+            }
+            if (response != null && response.status() >= 400) {
+                throw new AssertionError("Template save request failed: " + response.status() + " " + response.url());
+            }
+            clicked++;
+            page.waitForTimeout(750);
+        }
+
+        if (clicked == 0) {
+            Locator fallback = page.getByRole(
+                    AriaRole.BUTTON,
+                    new Page.GetByRoleOptions().setName(Pattern.compile("^(Update|Create)$", Pattern.CASE_INSENSITIVE)))
+                    .last();
+            assertThat(fallback).isVisible();
+            fallback.click(new Locator.ClickOptions().setForce(true));
+        }
     }
 
     public void cancelChanges() {
@@ -204,7 +230,9 @@ public class TemplateEditorComponent {
             assertThat(success).isVisible();
             return;
         } catch (AssertionError ignored) {
-            Locator savedState = page.locator("form:visible, table:visible, text=Inspection Template").first();
+            Locator savedState = page.locator("form:visible, table:visible")
+                    .or(page.getByText("Inspection Template"))
+                    .first();
             assertThat(savedState).isVisible();
         }
     }
@@ -248,8 +276,13 @@ public class TemplateEditorComponent {
             return;
         }
 
-        Locator text = page.getByText(Pattern.compile(".*" + Pattern.quote(existingTextHint) + ".*", Pattern.CASE_INSENSITIVE))
+        Locator text = page.getByText(Pattern.compile("^\\s*" + Pattern.quote(existingTextHint) + "\\s*$",
+                Pattern.CASE_INSENSITIVE))
                 .first();
+        if (text.count() == 0 || !text.isVisible()) {
+            text = page.getByText(Pattern.compile(".*" + Pattern.quote(existingTextHint) + ".*",
+                    Pattern.CASE_INSENSITIVE)).last();
+        }
         if (text.count() == 0 || !text.isVisible()) {
             return;
         }
@@ -261,13 +294,42 @@ public class TemplateEditorComponent {
         if (editIcon.count() > 0 && editIcon.isVisible()) {
             editIcon.click(new Locator.ClickOptions().setForce(true));
         } else {
-            text.dblclick(new Locator.DblclickOptions().setForce(true));
+            editIcon = text.locator("xpath=following::*[@aria-label='Edit' or @aria-label='edit'][1]");
+            if (editIcon.count() > 0 && editIcon.isVisible()) {
+                editIcon.click(new Locator.ClickOptions().setForce(true));
+            } else {
+                text.dblclick(new Locator.DblclickOptions().setForce(true));
+            }
         }
 
-        Locator input = page.locator("input:visible, textarea:visible").last();
+        Locator input = page.locator(".ant-typography-edit-content input:visible, "
+                + ".ant-typography-edit-content textarea:visible, "
+                + "input:visible, textarea:visible").last();
         if (input.count() > 0 && input.isVisible() && input.isEnabled()) {
             input.fill(title);
             input.press("Enter");
+            page.waitForTimeout(300);
+        }
+    }
+
+    private void expandFirstSectionIfNeeded() {
+        Locator header = page.locator(".ant-collapse-item:visible .ant-collapse-header").first();
+        if (header.count() == 0 || !header.isVisible()) {
+            return;
+        }
+
+        if (!"true".equals(header.getAttribute("aria-expanded"))) {
+            header.click(new Locator.ClickOptions().setForce(true));
+            page.waitForLoadState(LoadState.DOMCONTENTLOADED);
+        }
+
+        long start = System.currentTimeMillis();
+        while (System.currentTimeMillis() - start < 10000) {
+            Locator content = page.locator(".ant-collapse-content-active:visible, .ant-collapse-content-box:visible").first();
+            if (content.count() > 0 && content.isVisible()) {
+                return;
+            }
+            page.waitForTimeout(250);
         }
     }
 

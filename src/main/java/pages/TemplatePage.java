@@ -3,6 +3,7 @@ package pages;
 import static com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat;
 
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 import com.microsoft.playwright.Locator;
@@ -17,6 +18,9 @@ import models.TemplateData;
 public class TemplatePage {
 
     private final Page page;
+    private String lastOrg = "SMARTCLEAN";
+    private String lastPropertyId = "3b749a681d14446292b6c79b48403bbd";
+    private String lastAccountId = "0397f1af95604770a6148231aaf5c6f9";
 
     public TemplatePage(Page page) {
         this.page = page;
@@ -49,10 +53,12 @@ public class TemplatePage {
 
     private void navigateDirectlyToTemplates() {
         String currentUrl = page.url();
-        String org = extractQueryValue(currentUrl, "org", "SMARTCLEANHQ");
-        String propertyId = extractQueryValue(currentUrl, "propId", "8cb0777846c64dc0a2d69cc080aaf8c7");
+        updateKnownTemplateRoute(currentUrl);
+        String org = extractRouteSegment(currentUrl, 0, extractQueryValue(currentUrl, "org", lastOrg));
+        String propertyId = extractRouteSegment(currentUrl, 1, extractQueryValue(currentUrl, "propId", lastPropertyId));
         String accountId = System.getProperty("matrix.account.id",
-                System.getenv().getOrDefault("MATRIX_ACCOUNT_ID", "0397f1af95604770a6148231aaf5c6f9"));
+                System.getenv().getOrDefault("MATRIX_ACCOUNT_ID",
+                        extractRouteSegment(currentUrl, 2, lastAccountId)));
         page.navigate(String.format(
                 "https://www.smartclean.io/matrix/audits/v48_7/#/templates/%s/%s/%s",
                 org,
@@ -458,30 +464,62 @@ public class TemplatePage {
     }
 
     private void normalizeInlineQuestionTexts(List<QuestionData> questions) {
-        Locator questionInputs = page.locator(
-                "form input.ant-input:visible:not(#template_templateName), " +
-                        "form textarea.ant-input:visible:not(#template_templateDescription)");
+        removeExtraInlineQuestionRows(questions.size());
 
-        int questionIndex = 0;
-        for (int inputIndex = 0; inputIndex < questionInputs.count() && questionIndex < questions.size(); inputIndex++) {
-            Locator input = questionInputs.nth(inputIndex);
-            if (!input.isVisible() || !input.isEnabled()) {
-                continue;
-            }
-
-            String id = input.getAttribute("id");
-            if (id != null && id.startsWith("template_")) {
-                continue;
-            }
-
-            input.scrollIntoViewIfNeeded();
-            input.fill(questions.get(questionIndex).question);
-            questionIndex++;
+        Locator questionInputs = inlineQuestionInputs();
+        if (questionInputs.count() < questions.size()) {
+            throw new AssertionError("Expected " + questions.size() + " question inputs, but only found "
+                    + questionInputs.count() + ". Page text: " + page.locator("body").innerText());
         }
 
-        if (questionIndex < questions.size()) {
-            throw new AssertionError("Expected " + questions.size() + " question inputs, but only found "
-                    + questionIndex + ". Page text: " + page.locator("body").innerText());
+        for (int questionIndex = 0; questionIndex < questions.size(); questionIndex++) {
+            configureInlineQuestionAt(questionIndex, questions.get(questionIndex));
+        }
+
+        for (int questionIndex = 0; questionIndex < questions.size(); questionIndex++) {
+            String expected = questions.get(questionIndex).question;
+            Locator input = inlineQuestionInputs().nth(questionIndex);
+            if (!expected.equals(safeInputValue(input))) {
+                fillQuestionInput(input, expected);
+            }
+        }
+    }
+
+    private Locator inlineQuestionInputs() {
+        return page.locator(
+                "form input.ant-input[maxlength='250']:visible:not(#template_templateName), " +
+                        "form textarea.ant-input[maxlength='250']:visible:not(#template_templateDescription)");
+    }
+
+    private void configureInlineQuestionAt(int index, QuestionData data) {
+        Locator input = inlineQuestionInputs().nth(index);
+        Locator row = questionRowForInput(input);
+        fillQuestionInput(input, data.question);
+        selectInlineAnswerFormat(row, data.questionType);
+        fillQuestionInput(inlineQuestionInputs().nth(index), data.question);
+        setInlineMandatory(questionRowForInput(inlineQuestionInputs().nth(index)), data.mandatory);
+    }
+
+    private Locator questionRowForInput(Locator input) {
+        return input.locator("xpath=ancestor::div[contains(@style,'border-bottom')][1]");
+    }
+
+    private void removeExtraInlineQuestionRows(int expectedRows) {
+        while (inlineQuestionInputs().count() > expectedRows) {
+            Locator input = inlineQuestionInputs().nth(inlineQuestionInputs().count() - 1);
+            Locator row = questionRowForInput(input);
+            Locator delete = row.locator("span[aria-label='delete']:visible, img[src*='Delete']:visible").last();
+            assertThat(delete).isVisible();
+            delete.click(new Locator.ClickOptions().setForce(true));
+
+            Locator confirm = page.getByRole(
+                    AriaRole.BUTTON,
+                    new Page.GetByRoleOptions().setName(Pattern.compile("^(Delete|OK|Yes)$", Pattern.CASE_INSENSITIVE)))
+                    .last();
+            if (confirm.count() > 0 && confirm.isVisible()) {
+                confirm.click(new Locator.ClickOptions().setForce(true));
+            }
+            page.waitForTimeout(300);
         }
     }
 
@@ -489,6 +527,7 @@ public class TemplatePage {
         saveQuestionModalIfOpen();
         enterInlineQuestion(data.question);
         selectInlineAnswerFormat(data.questionType);
+        enterInlineQuestion(data.question);
         configureInlineAnswerDetails(data);
         saveQuestionModalIfOpen();
         setInlineMandatory(data.mandatory);
@@ -498,10 +537,30 @@ public class TemplatePage {
     private void enterInlineQuestion(String question) {
         Locator questionInput = visibleInlineQuestionInput();
         assertThat(questionInput).isVisible();
-        questionInput.fill(question);
+        fillQuestionInput(questionInput, question);
+    }
+
+    private void fillQuestionInput(Locator input, String question) {
+        input.scrollIntoViewIfNeeded();
+        input.click(new Locator.ClickOptions().setForce(true));
+        input.fill(question);
+        input.evaluate("(element, value) => {"
+                + "const prototype = element.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;"
+                + "const setter = Object.getOwnPropertyDescriptor(prototype, 'value').set;"
+                + "setter.call(element, value);"
+                + "element.dispatchEvent(new Event('input', { bubbles: true }));"
+                + "element.dispatchEvent(new Event('change', { bubbles: true }));"
+                + "element.blur();"
+                + "}", question);
+        page.waitForTimeout(150);
     }
 
     private Locator visibleInlineQuestionInput() {
+        Locator rowQuestionInputs = inlineQuestionInputs().last();
+        if (rowQuestionInputs.count() > 0 && rowQuestionInputs.isVisible() && rowQuestionInputs.isEnabled()) {
+            return rowQuestionInputs;
+        }
+
         Locator preferred = page.locator(
                 "form input[placeholder*='question' i]:visible, " +
                         "form textarea[placeholder*='question' i]:visible")
@@ -576,6 +635,25 @@ public class TemplatePage {
                 + "'. Page text: " + page.locator("body").innerText());
     }
 
+    private void selectInlineAnswerFormat(Locator row, String questionType) {
+        String answerFormat = inlineAnswerFormatLabel(questionType);
+        Locator selected = row.locator(".ant-select-selection-item:visible")
+                .filter(new Locator.FilterOptions().setHasText(answerFormat))
+                .first();
+        if (selected.count() > 0 && selected.isVisible()) {
+            return;
+        }
+
+        Locator answerFormatSelect = row.locator(".ant-select:not(.ant-select-disabled) .ant-select-selector:visible")
+                .first();
+        assertThat(answerFormatSelect).isVisible();
+        answerFormatSelect.click(new Locator.ClickOptions().setForce(true));
+
+        Locator option = visibleAnswerFormatOption(answerFormat);
+        option.click(new Locator.ClickOptions().setForce(true));
+        page.waitForTimeout(300);
+    }
+
     private boolean isInlineAnswerFormatSelected(String answerFormat) {
         Locator selected = page.locator("form .ant-select-selection-item")
                 .filter(new Locator.FilterOptions().setHasText(answerFormat))
@@ -621,6 +699,17 @@ public class TemplatePage {
         Locator mandatoryCheckbox = page.locator("label:has-text('Mandatory') input[type='checkbox']:visible").last();
         if (mandatoryCheckbox.count() == 0 || !mandatoryCheckbox.isVisible()) {
             setMandatory(mandatory);
+            return;
+        }
+
+        if (mandatoryCheckbox.isChecked() != mandatory) {
+            mandatoryCheckbox.click(new Locator.ClickOptions().setForce(true));
+        }
+    }
+
+    private void setInlineMandatory(Locator row, boolean mandatory) {
+        Locator mandatoryCheckbox = row.locator("label:has-text('Mandatory') input[type='checkbox']:visible").first();
+        if (mandatoryCheckbox.count() == 0 || !mandatoryCheckbox.isVisible()) {
             return;
         }
 
@@ -1264,43 +1353,99 @@ public class TemplatePage {
             return editor;
         }
 
-        openCustomTemplatesTab();
-        resetCustomTemplatePaginationToFirstPage();
-        searchTemplate(templateName);
-        Locator row = findTemplateRowAcrossPages(templateName);
-        row.scrollIntoViewIfNeeded();
-        row.hover();
+        long start = System.currentTimeMillis();
+        Throwable lastError = null;
+        while (System.currentTimeMillis() - start < 45000) {
+            try {
+                openCustomTemplatesTab();
+                String templateId = resolveCustomTemplateIdFromApi(templateName);
+                if (!templateId.isBlank()) {
+                    clearTemplateSearch();
+                    Locator row = findTemplateRowAcrossPages(templateName);
+                    row.scrollIntoViewIfNeeded();
+                    row.getByText(templateName).first().click(new Locator.ClickOptions().setForce(true));
+                    page.waitForLoadState(LoadState.DOMCONTENTLOADED);
+                    TemplateEditorComponent editor = new TemplateEditorComponent(page);
+                    editor.clickEditIfNeeded();
+                    editor.waitForEditor();
+                    return editor;
+                }
 
-        if (!clickRowActionMenu(row)) {
-            row.getByText(templateName).first().click(new Locator.ClickOptions().setForce(true));
-            page.waitForLoadState(LoadState.DOMCONTENTLOADED);
-            TemplateEditorComponent editor = new TemplateEditorComponent(page);
-            editor.clickEditIfNeeded();
-            editor.waitForEditor();
-            return editor;
+                resetCustomTemplatePaginationToFirstPage();
+                searchTemplate(templateName);
+                Locator row = findTemplateRowAcrossPages(templateName);
+                row.scrollIntoViewIfNeeded();
+                row.hover();
+
+                if (!clickRowActionMenu(row)) {
+                    row.getByText(templateName).first().click(new Locator.ClickOptions().setForce(true));
+                    page.waitForLoadState(LoadState.DOMCONTENTLOADED);
+                    TemplateEditorComponent editor = new TemplateEditorComponent(page);
+                    editor.clickEditIfNeeded();
+                    editor.waitForEditor();
+                    return editor;
+                }
+
+                Locator edit = page.getByText(
+                        Pattern.compile("Edit\\s+Template|^Edit$", Pattern.CASE_INSENSITIVE))
+                        .last();
+                assertThat(edit).isVisible();
+                edit.click(new Locator.ClickOptions().setForce(true));
+                page.waitForLoadState(LoadState.DOMCONTENTLOADED);
+
+                TemplateEditorComponent editor = new TemplateEditorComponent(page);
+                editor.waitForEditor();
+                return editor;
+            } catch (RuntimeException | AssertionError ex) {
+                if (ex instanceof RuntimeException && !isTransientDomRefreshError((RuntimeException) ex)) {
+                    throw ex;
+                }
+                lastError = ex;
+                page.waitForTimeout(500);
+            }
         }
 
-        Locator edit = page.getByText(
-                Pattern.compile("Edit\\s+Template|^Edit$", Pattern.CASE_INSENSITIVE))
-                .last();
-        assertThat(edit).isVisible();
-        edit.click(new Locator.ClickOptions().setForce(true));
-        page.waitForLoadState(LoadState.DOMCONTENTLOADED);
-
-        TemplateEditorComponent editor = new TemplateEditorComponent(page);
-        editor.waitForEditor();
-        return editor;
+        throw new AssertionError("Unable to open template for edit: '" + templateName
+                + "'. Current URL=" + page.url()
+                + ". Page text: " + page.locator("body").innerText(), lastError);
     }
 
     public void reopenTemplate(String templateName) {
-        openTemplateModule();
-        openCustomTemplatesTab();
-        resetCustomTemplatePaginationToFirstPage();
-        searchTemplate(templateName);
-        Locator row = findTemplateRowAcrossPages(templateName);
-        row.scrollIntoViewIfNeeded();
-        row.getByText(templateName).first().click(new Locator.ClickOptions().setForce(true));
-        page.waitForLoadState(LoadState.DOMCONTENTLOADED);
+        Throwable lastError = null;
+        long start = System.currentTimeMillis();
+        while (System.currentTimeMillis() - start < 45000) {
+            try {
+                openTemplateModule();
+                openCustomTemplatesTab();
+                String templateId = resolveCustomTemplateIdFromApi(templateName);
+                if (!templateId.isBlank()) {
+                    clearTemplateSearch();
+                    Locator row = findTemplateRowAcrossPages(templateName);
+                    row.scrollIntoViewIfNeeded();
+                    row.getByText(templateName).first().click(new Locator.ClickOptions().setForce(true));
+                    page.waitForLoadState(LoadState.DOMCONTENTLOADED);
+                    return;
+                }
+
+                resetCustomTemplatePaginationToFirstPage();
+                searchTemplate(templateName);
+                Locator row = findTemplateRowAcrossPages(templateName);
+                row.scrollIntoViewIfNeeded();
+                row.getByText(templateName).first().click(new Locator.ClickOptions().setForce(true));
+                page.waitForLoadState(LoadState.DOMCONTENTLOADED);
+                return;
+            } catch (RuntimeException | AssertionError ex) {
+                if (ex instanceof RuntimeException && !isTransientDomRefreshError((RuntimeException) ex)) {
+                    throw ex;
+                }
+                lastError = ex;
+                page.waitForTimeout(500);
+            }
+        }
+
+        throw new AssertionError("Unable to reopen template: '" + templateName
+                + "'. Current URL=" + page.url()
+                + ". Page text: " + page.locator("body").innerText(), lastError);
     }
 
     public void openCustomTemplateList() {
@@ -1320,21 +1465,111 @@ public class TemplatePage {
             lastError = new AssertionError("Template row was not visible on page " + (pageIndex + 1)
                     + " for '" + templateName + "'.");
             Locator nextButton = page.locator(
-                    ".ant-tabs-tabpane-active .ant-pagination-next:not(.ant-pagination-disabled) button, "
-                            + ".ant-pagination-next:not(.ant-pagination-disabled) button")
+                    ".ant-tabs-tabpane-active .ant-pagination-next:not(.ant-pagination-disabled) button")
                     .first();
             if (nextButton.count() == 0 || !nextButton.isVisible() || !nextButton.isEnabled()) {
                 break;
             }
 
-            nextButton.scrollIntoViewIfNeeded();
-            nextButton.click();
+            nextButton.click(new Locator.ClickOptions().setForce(true));
             page.waitForLoadState(LoadState.DOMCONTENTLOADED);
             page.locator("tbody tr:visible").first().waitFor();
         }
 
         throw new AssertionError("Unable to find template row for '" + templateName
                 + "'. Page text: " + page.locator("body").innerText(), lastError);
+    }
+
+    private boolean isTransientDomRefreshError(RuntimeException ex) {
+        String message = String.valueOf(ex.getMessage()).toLowerCase();
+        return message.contains("not attached to the dom")
+                || message.contains("element is not stable")
+                || message.contains("target closed")
+                || message.contains("timeout");
+    }
+
+    private String resolveCustomTemplateIdFromApi(String templateName) {
+        String currentUrl = page.url();
+        String org = extractRouteSegment(currentUrl, 0, extractQueryValue(currentUrl, "org", "SMARTCLEAN"));
+        String propertyId = extractRouteSegment(currentUrl, 1,
+                extractQueryValue(currentUrl, "propId", "3b749a681d14446292b6c79b48403bbd"));
+        String accountId = extractRouteSegment(currentUrl, 2,
+                System.getProperty("matrix.account.id",
+                        System.getenv().getOrDefault("MATRIX_ACCOUNT_ID", "0397f1af95604770a6148231aaf5c6f9")));
+        String url = String.format(
+                "https://console.smartclean.io/prod/v2/audits/v1/actions?org=%s&op=scaudits.listCustomTemplates&propid=%s&pid=%s",
+                org,
+                propertyId,
+                accountId);
+
+        Object result = page.evaluate("""
+                async ({ url, templateName }) => {
+                  const findToken = value => {
+                    if (!value) return '';
+                    if (typeof value === 'string' && value.split('.').length === 3) return value;
+                    try {
+                      const parsed = JSON.parse(value);
+                      const stack = [parsed];
+                      while (stack.length) {
+                        const item = stack.pop();
+                        if (!item || typeof item !== 'object') continue;
+                        for (const candidate of Object.values(item)) {
+                          if (typeof candidate === 'string' && candidate.split('.').length === 3) return candidate;
+                          if (candidate && typeof candidate === 'object') stack.push(candidate);
+                        }
+                      }
+                    } catch (ignored) {
+                    }
+                    return '';
+                  };
+                  const token = Object.values(localStorage).map(findToken).find(Boolean) || '';
+                  const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                      'content-type': 'application/json',
+                      ...(token ? { authorization: token } : {})
+                    },
+                    body: '{}'
+                  });
+                  if (!response.ok) return '';
+                  const payload = await response.json();
+                  const record = (payload.Data || []).find(item => item.Title === templateName);
+                  return record && record.TemplateId ? record.TemplateId : '';
+                }
+                """, Map.of("url", url, "templateName", templateName));
+        return result == null ? "" : result.toString();
+    }
+
+    private String extractRouteSegment(String url, int index, String fallback) {
+        Pattern pattern = Pattern.compile("#/templates/([^/?#]+)/([^/?#]+)/([^/?#]+)");
+        java.util.regex.Matcher matcher = pattern.matcher(url);
+        if (!matcher.find()) {
+            return fallback;
+        }
+        return matcher.group(index + 1);
+    }
+
+    private void updateKnownTemplateRoute(String url) {
+        Pattern pattern = Pattern.compile("#/templates/([^/?#]+)/([^/?#]+)/([^/?#]+)");
+        java.util.regex.Matcher matcher = pattern.matcher(url);
+        if (!matcher.find()) {
+            return;
+        }
+
+        lastOrg = matcher.group(1);
+        lastPropertyId = matcher.group(2);
+        lastAccountId = matcher.group(3);
+    }
+
+    private void clearTemplateSearch() {
+        Locator searchInput = page.locator(".ant-tabs-tabpane-active input[placeholder*='Search' i]").first();
+        if (searchInput.count() == 0 || !searchInput.isVisible()) {
+            return;
+        }
+
+        searchInput.fill("");
+        searchInput.press("Enter");
+        page.waitForLoadState(LoadState.DOMCONTENTLOADED);
     }
 
     private boolean clickRowActionMenu(Locator row) {
