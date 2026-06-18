@@ -21,6 +21,7 @@ import org.testng.annotations.BeforeMethod;
 import pages.AuditPage;
 import pages.LoginPage;
 import pages.ScheduleInspectionPage;
+import pages.CreateTaskPage;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -246,33 +247,7 @@ public class BaseTest {
         return value == null || value.isBlank();
     }
 
-    // private void openScheduleInspectionModalOnce() {
-
-    // auditPage.openScheduleTab();
-    // auditPage.waitForSchedulePageReady();
-    // page.waitForLoadState(LoadState.NETWORKIDLE);
-
-    // captureStep("06-schedule-tab");
-
-    // auditPage.selectFirstBuildingFromTopBar();
-    // captureStep("06b-schedule-building-selected");
-
-    // for (int i = 0; i < 2; i++) {
-
-    //     auditPage.clickScheduleInspectionButton();
-    //     captureStep("07-after-schedule-inspection-click");
-
-    //     try {
-    //         scheduleInspectionPage.waitForModal();
-    //         captureStep("08-schedule-audit-modal");
-    //         return;
-    //     } catch (Exception e) {
-    //         page.waitForTimeout(500);
-    //     }
-    // }
-
-    // throw new IllegalStateException("Schedule Audit modal never became visible");
-    // }
+    
 
     private void openScheduleInspectionModalOnce() {
 
@@ -356,18 +331,6 @@ public class BaseTest {
     btn.click(new Locator.ClickOptions().setForce(true));
 }
 
-
-    // private void openScheduleInspectionModalOnce() {
-    //     auditPage.openScheduleTab();
-    //     auditPage.waitForSchedulePageReady();
-    //     captureStep("06-schedule-tab");
-    //     auditPage.selectFirstBuildingFromTopBar();
-    //     captureStep("06b-schedule-building-selected");
-    //     auditPage.clickScheduleInspectionButton();
-    //     captureStep("07-after-schedule-inspection-click");
-    //     scheduleInspectionPage.waitForModal();
-    //     captureStep("08-schedule-audit-modal");
-    // }
 
     private void recoverSchedulePageAfterModalFailure(int attempt) {
         browserDiagnostics.add("RETRY :: Schedule Inspection modal open attempt " + attempt + " failed. Reloading schedule page.");

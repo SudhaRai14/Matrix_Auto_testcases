@@ -1,0 +1,17 @@
+[
+  {
+    "taskName": "AutoTask01",
+    "category": "Carpet Care",
+    "categoryList": "Carpet",
+    "subCategory": "Carpet",
+    "skills": "__FIRST__",
+    "unitOfMeasure": "Square Feet",
+    "typeOfMeasure": "Square Feet",
+    "triggerPoint": "10",
+    "measure": "10",
+    "timeInMinutes": "2",
+    "timeToResolve": "2",
+    "expectedResult": "Success"
+  }
+ 
+]

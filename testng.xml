@@ -6,6 +6,8 @@
             <class name="tests.ScheduleInspectionTest"/>
             <class name="tests.EditAuditTest"/>
             <class name="tests.EditTemplateTest"/>
+            <class name="tests.CreateTaskTest"/>
+            <class name="tests.TaskGroupTest"/>
         </classes>
     </test>
 </suite>
