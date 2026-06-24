@@ -2,13 +2,13 @@ package tests;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
 
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
 import pages.TaskGroupPage;
 import utils.BaseTest;
+import utils.TaskGroupCreationHelper;
 
 public class TaskGroupTest extends BaseTest {
 
@@ -20,22 +20,8 @@ public class TaskGroupTest extends BaseTest {
         TaskGroupPage taskGroupPage = openTaskGroups();
         String taskGroupName = uniqueTaskGroupName("AutoTaskGroup");
 
-        taskGroupPage.clickCreateTaskGroup();
-        Assert.assertTrue(taskGroupPage.isCreateFormOpen(), "Create Task Group form should open.");
-
-        taskGroupPage.enterTaskGroupName(taskGroupName);
-        taskGroupPage.enterDescription("Created by automation: " + taskGroupName);
-        taskGroupPage.addTask(getExistingTaskNameFromDropdown(taskGroupPage));
-        taskGroupPage.fillRequiredDefaults();
-        taskGroupPage.clickSave();
-
-        Assert.assertTrue(taskGroupPage.isSuccessMessageVisible(),
-                "Expected success message after creating task group.");
-
-        taskGroupPage.closeSuccessMessageIfPresent();
-        taskGroupPage.searchTaskGroup(taskGroupName);
-        Assert.assertTrue(taskGroupPage.isTaskGroupVisible(taskGroupName),
-                "Created task group should be visible in listing/search results.");
+        TaskGroupCreationHelper.createTaskGroup(page, taskGroupPage, taskGroupName,
+                "Created by automation: " + taskGroupName, 1);
     }
 
     @Test
@@ -95,22 +81,8 @@ public class TaskGroupTest extends BaseTest {
         TaskGroupPage taskGroupPage = openTaskGroups();
         String taskGroupName = uniqueTaskGroupName("MultiTaskGroup");
 
-        taskGroupPage.clickCreateTaskGroup();
-        Assert.assertTrue(taskGroupPage.isCreateFormOpen(), "Create Task Group form should open.");
-
-        taskGroupPage.enterTaskGroupName(taskGroupName);
-        taskGroupPage.enterDescription("Created with multiple tasks by automation");
-        taskGroupPage.addMultipleTasks(getExistingTaskNamesFromDropdown(taskGroupPage, 2));
-        taskGroupPage.fillRequiredDefaults();
-        taskGroupPage.clickSave();
-
-        Assert.assertTrue(taskGroupPage.isSuccessMessageVisible(),
-                "Expected success message after creating task group with multiple tasks.");
-
-        taskGroupPage.closeSuccessMessageIfPresent();
-        taskGroupPage.searchTaskGroup(taskGroupName);
-        Assert.assertTrue(taskGroupPage.isTaskGroupVisible(taskGroupName),
-                "Created multi-task group should be visible in listing/search results.");
+        TaskGroupCreationHelper.createTaskGroup(page, taskGroupPage, taskGroupName,
+                "Created with multiple tasks by automation", 2);
     }
 
     private TaskGroupPage openTaskGroups() {
@@ -126,18 +98,4 @@ public class TaskGroupTest extends BaseTest {
         return prefix + "_" + NAME_STAMP.format(LocalDateTime.now());
     }
 
-    private String getExistingTaskNameFromDropdown(TaskGroupPage taskGroupPage) {
-        taskGroupPage.openTaskDropdown();
-        return taskGroupPage.getFirstAvailableTaskName();
-    }
-
-    private List<String> getExistingTaskNamesFromDropdown(TaskGroupPage taskGroupPage, int count) {
-        taskGroupPage.openTaskDropdown();
-        List<String> taskNames = taskGroupPage.getAvailableTaskNamesFromDropdown(count);
-
-        Assert.assertTrue(taskNames.size() >= count,
-                "Expected at least " + count + " available tasks but found: " + taskNames);
-
-        return taskNames;
-    }
 }

@@ -61,6 +61,10 @@ public class TaskGroupPage {
         assertThat(input).hasValue(name);
     }
 
+    public void clearTaskGroupName() {
+        taskGroupNameInput().fill("");
+    }
+
     public void enterDescription(String description) {
         Locator descriptionInput = descriptionInput();
 
@@ -120,13 +124,67 @@ public class TaskGroupPage {
         assertThat(createForm()).not().isVisible();
     }
 
+    public void openEditTaskGroup(String taskGroupName) {
+        searchTaskGroup(taskGroupName);
+        Locator row = exactTaskGroupRow(taskGroupName);
+        if (row.count() == 0) {
+            System.out.println("DEBUG: Task group row was not found for edit: " + taskGroupName);
+            throw new IllegalStateException("Task group row was not found: " + taskGroupName);
+        }
+
+        // TODO: Replace this selector with the task-group edit action data-testid when available.
+        Locator edit = row.locator("[aria-label='Edit']:visible, [aria-label='edit']:visible, "
+                + ".anticon-edit:visible, .anticon-form:visible, [data-testid*='edit' i]:visible")
+                .last();
+        if (edit.count() == 0) {
+            edit = row.locator("td:last-child button:visible, td:last-child [role='button']:visible").last();
+        }
+        if (edit.count() == 0) {
+            System.out.println("DEBUG: Edit action was not found for task group '" + taskGroupName
+                    + "'; row text: " + row.innerText());
+            throw new IllegalStateException("Task group edit action was not found: " + taskGroupName);
+        }
+        clickReliably(edit);
+        createForm().waitFor(new Locator.WaitForOptions()
+                .setState(WaitForSelectorState.VISIBLE).setTimeout(15000));
+    }
+
+    public boolean isEditFormOpen() {
+        return isCreateFormOpen();
+    }
+
+    public void removeTask(String taskName) {
+        Locator taskEntry = createForm().locator("tr:visible, .ant-tag:visible, .ant-list-item:visible")
+                .filter(new Locator.FilterOptions().setHasText(
+                        Pattern.compile(Pattern.quote(taskName), Pattern.CASE_INSENSITIVE)))
+                .first();
+        if (taskEntry.count() == 0) {
+            throw new IllegalStateException("Associated task was not found for removal: " + taskName);
+        }
+
+        // TODO: Replace with the task-association remove data-testid if the UI exposes one.
+        Locator remove = taskEntry.locator("[aria-label*='remove' i]:visible, [aria-label*='delete' i]:visible, "
+                + ".anticon-delete:visible, .anticon-close:visible, button:visible").last();
+        if (remove.count() == 0) {
+            throw new IllegalStateException("Remove action was not found for associated task: " + taskName);
+        }
+        clickReliably(remove);
+        page.waitForCondition(() -> !isTaskAssociatedWithGroup(taskName),
+                new Page.WaitForConditionOptions().setTimeout(10000));
+    }
+
+    public boolean isTaskAssociatedWithGroup(String taskName) {
+        Locator taskText = createForm().getByText(taskName, new Locator.GetByTextOptions().setExact(true)).first();
+        return taskText.count() > 0 && taskText.isVisible();
+    }
+
     public boolean isSuccessMessageVisible() {
         Locator successMessage = page.locator(
                 ".ant-message-notice-content:visible, " +
                         ".ant-modal:visible, " +
                         ".swal-modal:visible")
                 .filter(new Locator.FilterOptions()
-                        .setHasText(Pattern.compile("success|created", Pattern.CASE_INSENSITIVE)))
+                        .setHasText(Pattern.compile("success|created|updated", Pattern.CASE_INSENSITIVE)))
                 .first();
 
         try {
@@ -161,15 +219,22 @@ public class TaskGroupPage {
     }
 
     public void searchTaskGroup(String name) {
-        page.waitForCondition(() -> visiblePageTextContains(name),
-                new Page.WaitForConditionOptions().setTimeout(10000));
+        Locator search = visibleTaskGroupsPanel().locator(
+                "input[placeholder*='search' i]:visible, input[type='search']:visible").last();
+        if (search.count() > 0 && search.isVisible()) {
+            search.fill(name);
+        } else {
+            System.out.println("DEBUG: Task group search input was not found; waiting for row: " + name);
+        }
+        page.waitForCondition(() -> exactTaskGroupRow(name).count() > 0 || isEmptyTaskGroupResultVisible(),
+                new Page.WaitForConditionOptions().setTimeout(15000));
     }
 
     public boolean isTaskGroupVisible(String name) {
         try {
-            page.waitForCondition(() -> visiblePageTextContains(name),
-                    new Page.WaitForConditionOptions().setTimeout(10000));
-            return true;
+            page.waitForCondition(() -> exactTaskGroupRow(name).count() > 0 || isEmptyTaskGroupResultVisible(),
+                    new Page.WaitForConditionOptions().setTimeout(15000));
+            return exactTaskGroupRow(name).count() > 0;
         } catch (RuntimeException ex) {
             return false;
         }
@@ -253,7 +318,7 @@ public class TaskGroupPage {
     public void closeSuccessMessageIfPresent() {
         Locator successModal = page.locator(".ant-modal:visible, .swal-modal:visible")
                 .filter(new Locator.FilterOptions()
-                        .setHasText(Pattern.compile("success|created", Pattern.CASE_INSENSITIVE)))
+                        .setHasText(Pattern.compile("success|created|updated", Pattern.CASE_INSENSITIVE)))
                 .last();
 
         if (successModal.count() > 0 && successModal.isVisible()) {
@@ -291,7 +356,11 @@ public class TaskGroupPage {
             return;
         }
 
-        Locator workorders = page.getByText("Workorders", new Page.GetByTextOptions().setExact(true)).first();
+        Locator workorders = page.locator("xpath=//app-module-item[.//div["
+                        + "contains(concat(' ', normalize-space(@class), ' '), ' module_name ')"
+                        + " and normalize-space()='Workorders']]"
+                        + "//div[contains(concat(' ', normalize-space(@class), ' '), ' module ')]")
+                .first();
 
         assertThat(workorders).isVisible();
         workorders.click();
@@ -362,14 +431,41 @@ public class TaskGroupPage {
                         .setHasText(Pattern.compile(Pattern.quote(name), Pattern.CASE_INSENSITIVE)));
     }
 
+    private Locator exactTaskGroupRow(String name) {
+        Locator rows = visibleTaskGroupsPanel().locator(".ant-table-tbody tr:visible");
+        int rowCount = rows.count();
+        for (int rowIndex = 0; rowIndex < rowCount; rowIndex++) {
+            Locator row = rows.nth(rowIndex);
+            Locator cells = row.locator("td");
+            for (int cellIndex = 0; cellIndex < cells.count(); cellIndex++) {
+                if (name.equals(cells.nth(cellIndex).innerText().trim())) {
+                    return row;
+                }
+            }
+        }
+        return page.locator(".__task-group-row-not-found__");
+    }
+
+    private boolean isEmptyTaskGroupResultVisible() {
+        Locator empty = visibleTaskGroupsPanel().locator(".ant-empty:visible, tr:visible")
+                .filter(new Locator.FilterOptions().setHasText(
+                        Pattern.compile("no\\s+(data|results|task\\s+groups?)", Pattern.CASE_INSENSITIVE)))
+                .first();
+        return empty.count() > 0 && empty.isVisible();
+    }
+
     private boolean visiblePageTextContains(String text) {
         return page.locator("body").innerText().toLowerCase().contains(text.toLowerCase());
     }
 
     private Locator createForm() {
+        Locator taskGroupForm = page.locator("form:has(#taskGroupName):visible").last();
+        if (taskGroupForm.count() > 0) {
+            return taskGroupForm;
+        }
         return page.locator(".ant-modal:visible, .ant-drawer-content:visible, form:visible")
                 .filter(new Locator.FilterOptions()
-                        .setHasText(Pattern.compile("create\\s+task\\s+group|task\\s+group", Pattern.CASE_INSENSITIVE)))
+                        .setHasText(Pattern.compile("create\\s+task\\s+group|edit\\s+task\\s+group|task\\s+group", Pattern.CASE_INSENSITIVE)))
                 .last();
     }
 
@@ -386,9 +482,9 @@ public class TaskGroupPage {
     }
 
     private Locator descriptionInput() {
-        // TODO: Replace selector with exact description id/data-testid when the app exposes one.
         return createForm().locator(
-                "textarea#description:visible, " +
+                "textarea#taskGroupDescription:visible, input#taskGroupDescription:visible, " +
+                        "textarea#description:visible, " +
                         "textarea[name='description']:visible, " +
                         "textarea[placeholder*='description' i]:visible, " +
                         "input[placeholder*='description' i]:visible, " +
@@ -555,9 +651,9 @@ public class TaskGroupPage {
     }
 
     private Locator associateTasksModal() {
-        return page.locator(".ant-modal:visible")
-                .filter(new Locator.FilterOptions()
-                        .setHasText(Pattern.compile("associate\\s+tasks\\s+to\\s+task\\s+groups", Pattern.CASE_INSENSITIVE)))
+        return page.locator("xpath=//div[@role='dialog'][.//div["
+                        + "contains(concat(' ', normalize-space(@class), ' '), ' title-styles ')"
+                        + " and normalize-space()='Associate Tasks To Task Groups']]")
                 .last();
     }
 

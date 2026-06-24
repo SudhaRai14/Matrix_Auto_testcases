@@ -13,7 +13,10 @@ public class WorkorderPage {
     }
 
     private Locator workorderModule() {
-        return page.getByText("Workorders")
+        return page.locator("xpath=//app-module-item[.//div["
+                        + "contains(concat(' ', normalize-space(@class), ' '), ' module_name ')"
+                        + " and normalize-space()='Workorders']]"
+                        + "//div[contains(concat(' ', normalize-space(@class), ' '), ' module ')]")
                 .first();
     }
 
